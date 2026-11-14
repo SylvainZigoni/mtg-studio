@@ -1,0 +1,22 @@
+# --- Données personnelles : ne jamais pousser (privé, collection de Sylvain) ---
+mtg_data.db
+mtg_data.db-wal
+mtg_data.db-shm
+
+# --- Grosses bases binaires régénérables (voir README-APP.md) ---
+# prices.db (161 Mo) : reconstruit via `python price_seed.py prices` puis `weekly`
+prices.db
+prices.db-wal
+prices.db-shm
+# mtgtop8_2026_snapshot.sqlite (123 Mo) : re-scrapé via crawl.py / scraper.py
+mtgtop8_2026_snapshot.sqlite
+mtgtop8_2026_snapshot.sqlite-wal
+mtgtop8_2026_snapshot.sqlite-shm
+# decks.json.gz (8 Mo) : régénéré par export depuis la snapshot (voir scraper.py)
+decks.json.gz
+
+# --- Caches et divers ---
+__pycache__/
+price_cache/
+*.log
+*.tmp
