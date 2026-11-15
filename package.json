@@ -1,0 +1,13 @@
+{
+  "name": "mtg-studio",
+  "private": true,
+  "version": "2026-11-16b",
+  "type": "module",
+  "description": "MTG Studio — app locale collection MTG + méta MTGTop8 2026 (serveur Node zéro dépendance)",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

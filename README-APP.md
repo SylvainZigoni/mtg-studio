@@ -1,24 +1,25 @@
 # MTG Studio — app de collection, méta et stats Magic
 
-> **Version 2026-11-14b** — phase 2 complète (Marché, stats collection, historique de prix, decks perso, Cardmarket).
+> **Version 2026-11-16b** — serveur basculé en Node.js zéro dépendance (phase 2 : `server/` découpé en routes/contrôleurs/middlewares/utils, client en modules ES + CSS séparé).
 
 ## Contenu
-- `server.py` : le serveur à lancer (sert l'app + enregistre vos données dans SQLite)
-- `index.html` : la page de l'application
-- `app.js` : toute la logique
+- `server/server.js` : le serveur à lancer (Node >= 22.5, zéro dépendance npm : `node:http` + `node:sqlite`). Sert l'app + enregistre vos données dans SQLite
+- `server/` : routes (`routes/`), contrôleurs (`controllers/`), middlewares (`middleware/`), utilitaires (`utils/`)
+- `index.html` + `css/` + `js/` : l'application (client en modules ES, `css/reset.css` puis `css/app.css`)
 - `decks.json.gz` : 41 366 decks scrappés sur MTGTop8, tournois 2026 (Modern, Legacy, Vintage, Pauper, Premodern, Duel Commander)
+- `price_seed.py` : construit/met à jour `prices.db` depuis MTGJSON (reste en Python, appelé aussi par le serveur pour les prix du jour)
 
 ## Lancer l'app (recommandé)
-Déposez les 4 fichiers dans un même dossier, puis :
 ```
-python3 server.py
+node server/server.js        # ou : npm start
 ```
-Ouvrez http://localhost:8000
+Ouvrez http://localhost:8000 (port personnalisable : `node server/server.js 9000`)
 
-Le serveur n'a **aucune dépendance** (bibliothèque standard Python) et crée
+Le serveur n'a **aucune dépendance** (API standard de Node) et crée
 automatiquement à côté de lui un fichier `mtg_data.db` : c'est la base SQLite
 où sont enregistrées vos saisies (collection avec éditions/foil/tags,
-classeurs-tags, matchs), à chaque modification.
+classeurs-tags, matchs), à chaque modification. Les fichiers `*.db` ne sont
+pas servis en HTTP.
 
 Un badge en haut à droite de l'app indique « ✔ sauvegardé dans la BDD ».
 En ouvrant la page hors serveur (file://), l'app retombe sur le localStorage
@@ -80,12 +81,12 @@ du navigateur et le badge affiche « ⚠ hors serveur ».
 
 ### Activer le marché (le plus simple)
 Téléchargez directement `prices.db` (déjà construit, mis à jour chaque lundi
-par une tâche planifiée) et déposez-le à côté de `server.py`. Sinon, construisez-le :
+par une tâche planifiée) et déposez-le à côté de `server/`. Sinon, construisez-le :
 ```
 python3 price_seed.py prices   # télécharge AllPrices.json.gz (148 Mo), construit prices.db (~2 min)
 python3 price_seed.py cards    # télécharge les extensions MTGJSON : noms + ids Scryfall (~2 min)
 ```
-Puis relancez `server.py` : la page Marché, les statistiques et la courbe de
+Puis relancez le serveur Node : la page Marché, les statistiques et la courbe de
 prix fonctionnent.
 
 ### Tenir prices.db à jour

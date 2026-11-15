@@ -9,7 +9,7 @@ const store = {
     if(window.__booted && SYNC_KEYS.includes(k)) pushState();
   },
 };
-/* ---------------- synchronisation BDD (server.py + SQLite) ----------------
+/* ---------------- synchronisation BDD (serveur Node server/ + SQLite) ----------------
    Toutes les saisies sont poussées vers la base SQLite du serveur
    (mtg_data.db) avec un léger délai de regroupement. localStorage reste
    un cache de repli si la page est ouverte hors serveur (file://). */
