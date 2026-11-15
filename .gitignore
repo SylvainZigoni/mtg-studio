@@ -20,3 +20,6 @@ __pycache__/
 price_cache/
 *.log
 *.tmp
+
+# --- Outils de dev locaux (split app.js -> js/, non versionnés) ---
+.vibe-split/
