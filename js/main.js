@@ -52,6 +52,15 @@ $('#burger') && ($('#burger').onclick = () => {
   else document.body.classList.toggle('sideoff');
 });
 $('#scrim') && ($('#scrim').onclick = () => document.body.classList.remove('sideopen'));
+/* la sidebar fixed démarre sous la topbar : on mesure la hauteur réelle de la topbar
+   (elle wrap sur les fenêtres étroites) pour éviter tout chevauchement */
+const syncTopbarH = () => {
+  const tb = $('#topbar');
+  if(tb) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight + 'px');
+};
+syncTopbarH();
+window.addEventListener('resize', syncTopbarH);
+if(window.ResizeObserver && $('#topbar')) new ResizeObserver(syncTopbarH).observe($('#topbar'));
 function render(){
   const app = $('#app');
   document.querySelectorAll('.side-link').forEach(b => b.classList.toggle('active', !b.dataset.grp && b.dataset.view === S.view));

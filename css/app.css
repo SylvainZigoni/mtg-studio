@@ -18,7 +18,7 @@ header{display:none}
 .syncdot.off{color:#d8a441}
 .tagline{color:var(--muted);font-size:12px}
 #scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:94}
-#sidebar{position:fixed;top:57px;left:0;bottom:0;width:250px;background:var(--panel);border-right:1px solid var(--border);
+#sidebar{position:fixed;top:var(--topbar-h,57px);left:0;bottom:0;width:250px;background:var(--panel);border-right:1px solid var(--border);
   overflow-y:auto;padding:10px 8px 30px;z-index:95;transition:transform .2s;display:flex;flex-direction:column;gap:3px}
 #sidebar.hidden{transform:translateX(-100%)}
 .side-link{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:none;
