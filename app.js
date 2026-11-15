@@ -331,8 +331,13 @@ function entryPrice(entry, print){   // prix de L'édition possédée (foil si f
 }
 function setIcon(code){ return SET_ICONS[code] || null; }
 let SET_ICONS = {};   // code -> url svg (rempli par sfSets)
-async function sfSearch(q, page=1){
-  return sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=released&dir=asc&unique=prints&page=${page}&include_extras=true`);
+function sfSearchUrl(q, page, ord){
+  // ord = {order, dir} : tri délégué à Scryfall -> globalement correct entre les pages
+  const o = ord ? `&order=${ord.order}&dir=${ord.dir}` : '&order=released&dir=asc';
+  return `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}${o}&unique=prints&page=${page}&include_extras=true`;
+}
+async function sfSearch(q, page=1, ord){
+  return sfFetch(sfSearchUrl(q, page, ord));
 }
 async function sfSets(){
   const k = 'mtg_sf_sets';
@@ -1072,8 +1077,8 @@ function promptTagsFor(e){
    VUE CARTES & EXTENSIONS
    ============================================================ */
 let browseMode = 'sets', browseSet = null, browsePage = 1, browseQuery = '', browseData = null, browseQ = '';
-let advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:''};
-let advSort = '', advLast = null;   // tri courant + dernière réponse Scryfall (pour re-trier sans recharger)
+let advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, owned:false};
+let advSort = '', advLast = null, advOwnedLocal = false;   // tri courant + dernière réponse Scryfall + repli filtre collection local
 let setValCache = null;   // code -> {v, date} : valorisation totale d'une extension (calcul à la demande)
 
 function getSetValCache(){
@@ -1086,10 +1091,6 @@ function vBrowse(app){
   if(browseSet) return vSetDetail(app);
   app.innerHTML = `
   <div class="panel">
-    <div class="tabs">
-      <button class="${browseMode==='sets'?'active':''}" data-m="sets">Par extension</button>
-      <button class="${browseMode==='search'?'active':''}" data-m="search">Recherche avancée</button>
-    </div>
     ${browseMode==='sets' ? `<p class="hint" style="margin-bottom:10px">Suivi de complétion et de valorisation de vos extensions. Cliquez sur une extension pour parcourir ses cartes.
       <input type="text" id="setfilter" placeholder="🔍 Filtrer les extensions…" style="margin-left:10px;min-width:220px;padding:6px 10px"></p>
       <div id="setlist"><p class="hint">Chargement des extensions…</p></div>`
@@ -1121,14 +1122,18 @@ function vBrowse(app){
       <select id="adsort" title="Trier les résultats">
         ${ADV_SORTS.map(([v,l]) => `<option value="${v}" ${advSort===v?'selected':''}>Tri : ${l}</option>`).join('')}
       </select>
+      <label class="row" style="gap:6px" title="Ne rechercher que les cartes de la Reserved List (is:reserved)">
+        <input type="checkbox" id="adres" ${advF.reserved?'checked':''}> Reserved List
+      </label>
+      <label class="row" style="gap:6px" title="Intègre les cartes de ma collection à la requête Scryfall : filtrage global sur toutes les pages, tris conservés">
+        <input type="checkbox" id="adown" ${advF.owned?'checked':''}> Dans ma collection
+      </label>
       <button class="btn" id="gosearch">Rechercher</button>
       <button class="btn ghost" id="adreset">Réinitialiser</button>
     </div>
     <div id="searchres"></div>`}
   </div>`;
-  app.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
-    browseMode = b.dataset.m; if(browseMode==='sets') browseSet=null; vBrowse(app);
-  });
+  // plus d'onglets en haut : la navigation Par extension / Recherche avancée se fait via le menu burger
   if(browseMode==='sets') loadSets(app);
   else {
     const inp = app.querySelector('#sfq'); inp.value = browseQuery;
@@ -1176,7 +1181,9 @@ function vBrowse(app){
       }, 250);
     };
     ainp.addEventListener('blur', () => setTimeout(() => asugg.style.display='none', 150));
-    app.querySelector('#adreset').onclick = () => { advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:''}; vBrowse(app); };
+    app.querySelector('#adreset').onclick = () => { advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, owned:false}; vBrowse(app); };
+    app.querySelector('#adres').onchange = e => { advF.reserved = e.target.checked; };
+    app.querySelector('#adown').onchange = e => { advF.owned = e.target.checked; browsePage = 1; doSearch(app); };   // la clause change la requête -> re-recherche
     app.querySelectorAll('#adpick-colors span').forEach(s => s.onclick = () => {
       s.classList.toggle('on');
       advF.colors = [...app.querySelectorAll('#adpick-colors span.on')].map(x => x.dataset.c);
@@ -1192,7 +1199,7 @@ function vBrowse(app){
     app.querySelector('#admin').onchange = e => advF.pmin = e.target.value;
     app.querySelector('#admax').onchange = e => advF.pmax = e.target.value;
     app.querySelector('#adartist').onkeydown = e => { if(e.key==='Enter') go(); };
-    app.querySelector('#adsort').onchange = e => { advSort = e.target.value; renderAdvResults(app); };
+    app.querySelector('#adsort').onchange = e => { advSort = e.target.value; browsePage = 1; doSearch(app); };   // re-requête : le tri Scryfall change l'ordre global des pages
     // liste des extensions dans le filtre, triées par nom d'édition (ordre alphabétique)
     sfSets().then(sets => {
       const sel = app.querySelector('#adset'); if(!sel) return;
@@ -1216,6 +1223,8 @@ function buildAdvQuery(nameQ){
   if(advF.types.length) q.push(`(t:${advF.types.join(' or t:')})`);
   if(advF.cmc !== '') q.push(advF.cmc==='7+' ? 'mv>=7' : `mv=${advF.cmc}`);
   if(advF.set) q.push(`set:${advF.set}`);
+  if(advF.reserved) q.push('is:reserved');
+  /* (la clause "Dans ma collection" est ajoutée dans doSearch, après résolution du nom) */
   let price = null;
   if(advF.pmin !== '' && advF.pmax !== '') price = `eur:[${advF.pmin} TO ${advF.pmax}]`;
   else if(advF.pmin !== '') price = `eur>=${advF.pmin}`;
@@ -1335,13 +1344,20 @@ const ADV_SORTS = [
   ['cmc-asc','Coût de mana ↑'], ['cmc-desc','Coût de mana ↓'],
 ];
 const advCardPrice = c => { const v = parseFloat(c.prices?.eur || c.prices?.eur_foil || ''); return isNaN(v) ? null : v; };
-const advCardVal = c => {   // valeur totale possédée de cette carte dans cette édition (× prix de l'impression)
+/* index possédé précalculé : "norm|set" -> quantité (toutes langues/états/n° confondus).
+   Évite de reparcourir `entries` pour chaque tuile (badge ×N, filtre collection, tri valeur). */
+function ownedQtyMap(){
+  const m = new Map();
+  entries.forEach(e => { const k = e.norm+'|'+(e.set||''); m.set(k, (m.get(k)||0) + e.qty); });
+  return m;
+}
+const advCardVal = (c, ownMap) => {   // valeur totale possédée de cette carte dans cette édition (× prix de l'impression)
   const p = advCardPrice(c); if(p == null) return null;
-  const q = entries.filter(e => e.norm===norm(c.name) && e.set===c.set).reduce((a,e)=>a+e.qty,0);
-  return p * q;
+  return p * (ownMap.get(norm(c.name)+'|'+(c.set||'')) || 0);
 };
-function sortCards(cards, mode){
+function sortCards(cards, mode, ownMap){
   if(!mode) return cards;
+  ownMap = ownMap || ownedQtyMap();
   const dir = mode.endsWith('-desc') ? -1 : 1;
   const base = mode.replace(/-(asc|desc)$/, '');
   const keyFns = {
@@ -1349,7 +1365,7 @@ function sortCards(cards, mode){
     date: c => c.released_at || null,
     set:  c => (c.set_name||'').toLowerCase(),
     price: advCardPrice,
-    val:  advCardVal,
+    val:  c => advCardVal(c, ownMap),
     type: c => (c.type_line||'').toLowerCase(),
     cmc:  c => (c.cmc ?? null),
   };
@@ -1391,48 +1407,101 @@ async function doSearch(app){
       }
     }catch(e){}
   }
-  if(!q){ box.innerHTML = '<p class="hint">Saisissez une requête ou des filtres.</p>'; return; }
+  if(!q) q = '*';   // aucun filtre -> toutes les cartes
+  // "Dans ma collection" : la clause est intégrée À LA REQUÊTE Scryfall (OR sur les noms
+  // possédés) -> le filtrage est global (toutes les pages), les tris Scryfall restent corrects.
+  advOwnedLocal = false;
+  if(advF.owned){
+    // un terme par (carte, édition) possédée : !"nom" set:code  -> Black Lotus Alpha uniquement, pas les autres éditions
+    const terms = [...new Set(entries.filter(e => e.qty > 0).map(e => {
+      const n = `!"${String(e.name).replace(/"/g,'')}"`;
+      return e.set ? `${n} set:${e.set}` : n;   // entrée sans édition -> nom seul
+    }))];
+    if(!terms.length){
+      box.innerHTML = '<p class="hint">Votre collection est vide : aucun résultat possible avec « Dans ma collection ».</p>';
+      return;
+    }
+    if(terms.length > 200){ advOwnedLocal = true; }   // repli : filtre local par page (URL trop longue)
+    else {
+      const oc = '(' + terms.join(' or ') + ')';
+      q = (q === '*') ? oc : `(${q}) ${oc}`;
+    }
+  }
   box.innerHTML = '<p class="hint">Recherche…</p>';
   try{
-    const j = await sfSearch(q, browsePage);
-    advLast = {j, q};
+    // une seule page (175 résultats) par requête : rapide, et le tri éventuel est
+    // délégué à Scryfall (order=/dir=) donc correct sur TOUTES les pages
+    const j = await sfSearch(q, browsePage, advSortOrder());
+    advLast = {data: j.data || [], total: j.total_cards || 0, q};
     renderAdvResults(app);
   }catch(e){ box.innerHTML = `<p class="hint">Aucun résultat ou erreur (vérifiez la requête : "${esc(q)}").</p>`; }
 }
-/* ré-affiche la dernière réponse Scryfall en appliquant le tri courant (sans re-requête) */
+/* tri délégué à Scryfall (globalement correct entre les pages) quand le mode le permet ;
+   type / valeur-collection n'existent pas côté Scryfall -> tri local de la page */
+function advSortOrder(){
+  if(!advSort) return null;
+  const dir = advSort.endsWith('-desc') ? 'desc' : 'asc';
+  const base = advSort.replace(/-(asc|desc)$/, '');
+  const map = {name:'name', date:'released', set:'set', price:'eur', cmc:'cmc'};
+  return map[base] ? {order: map[base], dir} : null;
+}
+/* affiche la page courante : filtre "collection" local + tri local si mode non Scryfall + pager */
 function renderAdvResults(app){
   const box = app.querySelector('#searchres');
   if(!box || !advLast) return;
-  const j = advLast.j;
-  renderCardGrid(box, sortCards(j.data, advSort));
+  const ownMap = ownedQtyMap();
+  let cards = advLast.data.slice();
+  if(advF.owned && advOwnedLocal) cards = cards.filter(c => (ownMap.get(norm(c.name)+'|'+(c.set||'')) || 0) > 0);   // repli si >200 cartes
+  const serverSorted = !!advSortOrder();
+  if(advSort && !serverSorted) cards = sortCards(cards, advSort, ownMap);   // type / valeur collection : tri local page
+  renderCardGrid(box, cards);
+  const totalPages = Math.max(1, Math.ceil(advLast.total / 175));
+  const localSort = advSort && !serverSorted;
+  const qShown = advLast.q.length > 120 ? advLast.q.slice(0, 120) + '…' : advLast.q;
+  box.insertAdjacentHTML('afterbegin',
+    `<p class="hint">${advLast.total} résultat${advLast.total>1?'s':''} au total — page ${browsePage} / ${totalPages}` +
+    (advF.owned ? (advOwnedLocal ? ' · dans ma collection (filtre local)' : ' · dans ma collection (filtré dans la requête)') : '') +
+    ` · requête : "${esc(qShown)}"` +
+    (localSort ? ' · tri local à cette page (type/valeur collection)' : '') + '</p>');
   const pager = document.createElement('div'); pager.className='row'; pager.style.marginTop='12px';
-  pager.innerHTML = `<button class="btn ghost" id="prev" ${j.has_previous?'':'disabled'}>←</button>
-    <span class="hint">${j.total_cards} résultats — page ${browsePage}</span>
-    <button class="btn ghost" id="next" ${j.has_more?'':'disabled'}>→</button>`;
+  pager.innerHTML = `<button class="btn ghost" id="advfirst" ${browsePage>1?'':'disabled'}>«</button>
+    <button class="btn ghost" id="advprev" ${browsePage>1?'':'disabled'}>← Précédent</button>
+    <span class="hint">Page ${browsePage} / ${totalPages} — ${advLast.total} résultats</span>
+    <button class="btn ghost" id="advnext" ${browsePage<totalPages?'':'disabled'}>Suivant →</button>
+    <button class="btn ghost" id="advlast" ${browsePage<totalPages?'':'disabled'}>»</button>`;
   box.appendChild(pager);
-  if(j.has_previous) pager.querySelector('#prev').onclick = () => { browsePage--; doSearch(app); };
-  if(j.has_more) pager.querySelector('#next').onclick = () => { browsePage++; doSearch(app); };
+  pager.querySelector('#advfirst').onclick = () => { browsePage = 1; doSearch(app); };
+  pager.querySelector('#advprev').onclick  = () => { browsePage--; doSearch(app); };
+  pager.querySelector('#advnext').onclick  = () => { browsePage++; doSearch(app); };
+  pager.querySelector('#advlast').onclick  = () => { browsePage = totalPages; doSearch(app); };
+}
+/* langues réellement disponibles par édition (agrégées sur les résultats : une édition = souvent plusieurs langues) */
+function cardLangsOf(cards){
+  const m = {};
+  cards.forEach(c => { const k2 = c.set+'|'+norm(c.name); (m[k2] = m[k2] || new Set()).add(c.lang); });
+  return m;
+}
+function cardTileHTML(c, cardLangs, ownMap){
+  const img = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '';
+  const k = norm(c.name);
+  // quantité possédée pour cette carte dans CETTE édition (toutes langues / états / n° confondus)
+  const q = (ownMap || ownedQtyMap()).get(k+'|'+(c.set||'')) || 0;
+  const price = c.prices?.eur || c.prices?.eur_foil;
+  const langs = [...(cardLangs[c.set+'|'+k] || [c.lang])].map(l=>(l||'en').toUpperCase()).join('/');
+  return `<div class="cardtile" data-name="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}" style="cursor:pointer" title="Cliquez pour ajouter à la collection (langue, état…)">
+    ${q?`<span class="qtyb">×${q}</span>`:''}
+    <img src="${img}" loading="lazy" alt="${esc(c.name)}" data-zoom="${c.image_uris?.large || img}">
+    <div class="info">
+      <div class="name">${esc(c.name)}</div>
+      <div class="pill">${esc(c.set?.toUpperCase()||'')} · ${c.released_at?.slice(0,4)||''} · ${c.rarity||''} · ${langs}</div>
+      <div class="price">${price?eur(price):''}</div>
+    </div>
+  </div>`;
 }
 function renderCardGrid(box, cards){
-  // langues réellement disponibles par édition (agrégées sur la page : une édition = souvent plusieurs langues)
-  const cardLangs = {};
-  cards.forEach(c => { const k2 = c.set+'|'+norm(c.name); (cardLangs[k2] = cardLangs[k2] || new Set()).add(c.lang); });
-  box.innerHTML = `<div class="cardgrid">${cards.map(c => {
-    const img = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '';
-    const k = norm(c.name);
-    // quantité possédée pour cette carte dans CETTE édition (toutes langues / états / n° confondus)
-    const q = entries.filter(e => e.norm===k && e.set===c.set).reduce((a,e)=>a+e.qty,0);
-    const price = c.prices?.eur || c.prices?.eur_foil;
-    const langs = [...(cardLangs[c.set+'|'+k] || [c.lang])].map(l=>(l||'en').toUpperCase()).join('/');
-    return `<div class="cardtile" data-name="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}" style="cursor:pointer" title="Cliquez pour ajouter à la collection (langue, état…)">
-      ${q?`<span class="qtyb">×${q}</span>`:''}
-      <img src="${img}" loading="lazy" alt="${esc(c.name)}" data-zoom="${c.image_uris?.large || img}">
-      <div class="info">
-        <div class="name">${esc(c.name)}</div>
-        <div class="pill">${esc(c.set?.toUpperCase()||'')} · ${c.released_at?.slice(0,4)||''} · ${c.rarity||''} · ${langs}</div>
-        <div class="price">${price?eur(price):''}</div>
-      </div>
-    </div>`; }).join('')}</div>`;
+  const cardLangs = cardLangsOf(cards);
+  const ownMap = ownedQtyMap();
+  box.innerHTML = `<div class="cardgrid">${cards.map(c => cardTileHTML(c, cardLangs, ownMap)).join('')}</div>`;
   // clic sur une carte -> popup d'ajout pour CETTE impression (édition fixée, langue selon l'édition, état)
   box.querySelectorAll('.cardtile').forEach(tl => tl.onclick = () =>
     openAddPopup(tl.dataset.name, {set: tl.dataset.set, cn: tl.dataset.cn}));
@@ -1516,8 +1585,7 @@ async function openAddPopup(name, preset){
 }
 /* met à jour le badge ×N des tuiles d'une carte+édition (toutes langues/états confondus) */
 function refreshTileOwned(name, set){
-  const k = norm(name);
-  const q = entries.filter(e => e.norm===k && e.set===set).reduce((a,e)=>a+e.qty,0);
+  const q = ownedQtyMap().get(norm(name)+'|'+(set||'')) || 0;
   document.querySelectorAll('.cardtile').forEach(tl => {
     if(tl.dataset.set !== set || norm(tl.dataset.name) !== k) return;
     let b = tl.querySelector('.qtyb');
