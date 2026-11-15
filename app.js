@@ -2,7 +2,7 @@
 /* ============================================================
    MTG Studio — app.js
    Collection + Decks MTGTop8 2026 + Matchs + Stats + Tags
-   Version 2026-11-14b (phase 2)
+   Version 2026-11-15a (collection : langue + état de chaque exemplaire)
    ============================================================ */
 
 /* ---------------- utilitaires ---------------- */
@@ -260,7 +260,7 @@ async function sfAutocomplete(q){       // anglais d'abord, puis FR/DE/ES/IT/PT 
   // 3. recherche par langue d'impression (les noms localisés sont indexés)
   for(const lg of langs){
     try{
-      const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent('lang:'+lg+' '+q)}&unique=prints&order=released&dir=asc&include_extras=true`);
+      const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent('lang:'+lg+' !"'+q+'"')}&unique=prints&order=released&dir=asc&include_extras=true`);
       if(j.data && j.data.length){
         const names = [...new Set(j.data.map(c => c.name))];
         if(names.length){ alias[norm(q)] = names[0]; store.set('mtg_name_alias', alias); return names; }
@@ -283,7 +283,8 @@ async function sfPrints(name){   // toutes les éditions d'une carte, triées de
     image_lg:(c.image_uris && c.image_uris.large) || (c.card_faces && c.card_faces[0].image_uris && c.card_faces[0].image_uris.large) || null,
     eur:c.prices ? c.prices.eur : null, eur_foil:c.prices ? c.prices.eur_foil : null,
     type_line:c.type_line, mv:c.cmc, colors:c.colors, rarity:c.rarity, artist:c.artist,
-    oracle_id:c.oracle_id, lang:c.lang, reserved:!!c.reserved, legalities:c.legalities || {},
+    oracle_id:c.oracle_id, id:c.id, scryfall_uri:c.scryfall_uri, lang:c.lang, printed_name:c.printed_name || null,
+    finishes:c.finishes || [], reserved:!!c.reserved, legalities:c.legalities || {},
     oracle:(c.oracle_text || (c.card_faces||[]).map(f=>f.oracle_text).join(' // ')) || '',
   }));
   if(prints.length){
@@ -293,6 +294,29 @@ async function sfPrints(name){   // toutes les éditions d'une carte, triées de
     store.set(PRINT_CACHE_KEY, cache);
   }
   return prints;
+}
+/* printings d'une carte DANS une édition précise, toutes langues confondues.
+   unique=prints déduplique par (set, n°) et masque les langues partageant le même n°
+   -> on interroge explicitement chaque langue (OR combiné) pour avoir lang / n° / finishes exacts */
+const ALL_LANGS_Q = Object.keys(LANGS).map(l => `lang:${l}`).join(' or ');
+async function sfSetPrints(name, setCode){
+  let j = null;
+  try{
+    j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`set:${setCode} (${ALL_LANGS_Q}) !"${name}"`)}&unique=prints&include_extras=true`);
+  }catch(e){}
+  if(!j || !j.data || !j.data.length){
+    try{
+      j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`set:${setCode} !"${name}"`)}&unique=prints&include_extras=true`);
+    }catch(e){}
+  }
+  if(!j || !j.data) return [];
+  return j.data.filter(c => c.image_status !== 'missing').map(c => ({
+    name:c.name, printed_name:c.printed_name || null, set:c.set, set_name:c.set_name, cn:c.collector_number,
+    released_at:c.released_at,
+    image:(c.image_uris && c.image_uris.normal) || (c.card_faces && c.card_faces[0].image_uris && c.card_faces[0].image_uris.normal) || null,
+    eur:c.prices ? c.prices.eur : null, eur_foil:c.prices ? c.prices.eur_foil : null,
+    lang:c.lang, finishes:c.finishes || [], type_line:c.type_line, mv:c.cmc,
+  }));
 }
 async function printFor(entry){  // l'édition possédée, sinon la plus ancienne
   const prints = await sfPrints(entry.name);
@@ -319,6 +343,16 @@ async function sfSets(){
     store.set(k, list);
   }
   list.forEach(s => { if(!s.digital) SET_ICONS[s.code] = s.icon; });
+  return list;
+}
+async function sfArtists(){   // catalogue des noms d'artistes (autocomplétion), mis en cache local
+  const k = 'mtg_sf_artists';
+  let list = store.get(k);
+  if(!list){
+    const j = await sfFetch('https://api.scryfall.com/catalog/artist-names');
+    list = (j.data || []).slice().sort((a,b) => a.localeCompare(b));
+    store.set(k, list);
+  }
   return list;
 }
 
@@ -527,7 +561,11 @@ const inp = $('#globsearch'), sugg = $('#gsugg');
   sugg.addEventListener('mousedown', async e => {
     const it = e.target.closest('.sug'); if(!it) return;
     inp.value=''; sugg.style.display='none';
-    if(it.dataset.kind === 'card') showCardInfo(it.dataset.id);
+    if(it.dataset.kind === 'card'){
+      // résultat carte -> onglet Recherche avancée, toutes les impressions de la carte
+      browseQuery = `!"${it.dataset.id}"`; browseMode = 'search'; browsePage = 1;
+      setView('advsearch');
+    }
     else if(it.dataset.kind === 't8deck') showDeck(+it.dataset.id);
     else if(it.dataset.kind === 'mydeck'){ setView('mydecks'); openMyDeck(it.dataset.id); }
   });
@@ -613,10 +651,12 @@ function vCollection(app){
         <div class="suggestions" id="sugg" style="display:none"></div>
       </div>
       <input type="number" id="cardqty" value="1" min="1" max="99" style="width:80px" title="Quantité">
+      <select id="addlang" title="Langue de l'exemplaire ajouté (anglais par défaut)">${Object.entries(LANGS).map(([v,l])=>`<option value="${v}" ${v==='en'?'selected':''}>${l}</option>`).join('')}</select>
+      <select id="addcond" title="État de l'exemplaire ajouté (Near Mint par défaut)">${CONDS.map(([v,l])=>`<option value="${v}" ${v==='NM'?'selected':''}>${v} — ${l}</option>`).join('')}</select>
       <button class="btn" id="addbtn">Ajouter</button>
     </div>
     <p class="hint" style="margin-top:8px">Saisissez en anglais, français, allemand, espagnol, italien ou portugais — l'affichage reste en anglais.
-    Collez une liste (« 4 Lightning Bolt », une carte par ligne) pour un import rapide. Cliquez sur une suggestion pour choisir l'édition, le foil et les tags.</p>
+    Collez une liste (« 4 Lightning Bolt », une carte par ligne) pour un import rapide. Cliquez sur une suggestion pour choisir l'édition, la langue (uniquement celles existant dans cette édition), l'état, le foil et les tags.</p>
   </div>
   <div class="panel">
     <div class="row" style="justify-content:space-between;margin-bottom:6px">
@@ -694,8 +734,8 @@ function collTableHTML(list){
     const pr = p ? entryPrice(e, p) : null;
     return `<tr class="entryrow" data-id="${e.id}">
       <td><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></td>
-      <td>${p?.image ? `<img class="collthumb cinfo" data-name="${esc(e.name)}" src="${p.image}" data-zoom="${p.image_lg || p.image}" alt="">` : '<span class="hint">…</span>'}</td>
-      <td><span class="link cinfo" data-name="${esc(e.name)}">${esc(e.name)}</span>${e.foil?' <span class="foil-badge" title="Foil">FOIL</span>':''}${e.signed?' <span class="pill" title="Signée">✍</span>':''}${e.cond && e.cond!=='NM'?` <span class="pill" title="État">${COND_LABEL[e.cond]||e.cond}</span>`:''}${e.lang && e.lang!=='en'?` <span class="pill">${(LANGS[e.lang]||e.lang).slice(0,3).toUpperCase()}</span>`:''}${p?.reserved?' <span class="rl-badge" title="Reserved List">RL</span>':''}</td>
+      <td>${p?.image ? `<img class="collthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" alt="">` : '<span class="hint">…</span>'}</td>
+      <td><span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span>${e.foil?' <span class="foil-badge" title="Foil">FOIL</span>':''}${e.signed?' <span class="pill" title="Signée">✍</span>':''}<span class="pill pillbtn" data-edite="${e.id}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'} — cliquez pour modifier">${e.cond||'NM'}</span><span class="pill pillbtn" data-edite="${e.id}" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'} — cliquez pour modifier">${(e.lang||'en').toUpperCase()}</span>${p?.reserved?' <span class="rl-badge" title="Reserved List">RL</span>':''}</td>
       <td class="hint">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> <span class="pill">${p.released_at?.slice(0,4)||''}</span>` : '…'}</td>
       <td><div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div></td>
       <td class="p">${pr!=null?eur(pr):'…'}</td>
@@ -712,11 +752,11 @@ function collGridHTML(list){
     return `<div class="colltile" data-id="${e.id}">
       <span class="qtyb">×${e.qty}${e.foil?' ✦':''}</span>
       <label class="chkb"><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></label>
-      ${p?.image ? `<img class="gridthumb cinfo" data-name="${esc(e.name)}" src="${p.image}" data-zoom="${p.image_lg || p.image}" loading="lazy" alt="">` : '<div style="padding:20px" class="hint">chargement…</div>'}
+      ${p?.image ? `<img class="gridthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" loading="lazy" alt="">` : '<div style="padding:20px" class="hint">chargement…</div>'}
       <div class="info">
-        <div class="name cinfo" data-name="${esc(e.name)}">${esc(e.name)}</div>
+        <div class="name cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</div>
         <div class="pill">${p ? p.set?.toUpperCase() : ''} ${p && entryPrice(e,p)!=null ? eur(entryPrice(e,p)) : ''}</div>
-        <div>${e.cond && e.cond!=='NM' ? `<span class="pill">${COND_LABEL[e.cond]||e.cond}</span>`:''}${e.lang && e.lang!=='en' ? `<span class="pill">${(LANGS[e.lang]||e.lang).slice(0,3).toUpperCase()}</span>`:''}${e.signed?'<span class="pill">✍</span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
+        <div><span class="pill pillbtn" data-edite="${e.id}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'} — cliquez pour modifier">${e.cond||'NM'}</span><span class="pill pillbtn" data-edite="${e.id}" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'} — cliquez pour modifier">${(e.lang||'en').toUpperCase()}</span>${e.signed?'<span class="pill">✍</span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
         <div>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)}</span>`).join('')}</div>
         <div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div>
       </div>
@@ -754,9 +794,10 @@ function bindCollection(app, ctx){
   input.onkeydown = e => { if(e.key==='Enter'){ e.preventDefault(); app.querySelector('#addbtn').click(); } };
   app.querySelector('#addbtn').onclick = () => {
     const raw = input.value.trim(); if(!raw) return;
+    const lang = app.querySelector('#addlang').value, cond = app.querySelector('#addcond').value;
     const lines = raw.split(/\n|;/).map(s=>s.trim()).filter(Boolean);
     lines.forEach(l => { const m = l.match(/^(\d+)\s*x?\s+(.+)$/i);
-      addEntry(m ? {name:m[2], qty:+m[1], tags:[]} : {name:l, qty:+app.querySelector('#cardqty').value||1, tags:[]}); });
+      addEntry(m ? {name:m[2], qty:+m[1], tags:[], lang, cond} : {name:l, qty:+app.querySelector('#cardqty').value||1, tags:[], lang, cond}); });
     input.value=''; vCollection(app); hydrateColl(entries, app);
   };
   app.querySelector('#viewbtn').onclick = () => { collView = collView==='list'?'grid':'list'; vCollection(app); };
@@ -824,7 +865,11 @@ function bindCollection(app, ctx){
     const e = entries.find(en=>en.id===bt.dataset.addtagid); if(!e) return;
     promptTagsFor(e);
   });
-  app.querySelectorAll('.cinfo').forEach(el => el.onclick = () => showCardInfo(el.dataset.name));
+  app.querySelectorAll('.cinfo').forEach(el => el.onclick = () =>
+    showCardInfo(el.dataset.name, undefined, el.dataset.set ? {set: el.dataset.set, cn: el.dataset.cn} : null));
+  app.querySelectorAll('[data-edite]').forEach(el => el.onclick = () => {
+    const e = entries.find(x=>x.id===el.dataset.edite); if(e) openEntryEditor(e);
+  });
 
   // ---- checkboxes & actions en masse ----
   app.querySelectorAll('.rowchk').forEach(cb => cb.onchange = () => {
@@ -870,7 +915,7 @@ function bindCollection(app, ctx){
     const rd = new FileReader();
     rd.onload = () => { try{
       const j = JSON.parse(rd.result);
-      if(j.entries){ entries = j.entries.map(x=>({foil:false,tags:[],cn:null,set:null,...x})); saveColl(); }
+      if(j.entries){ entries = j.entries.map(x=>({foil:false, signed:false, cond:'NM', lang:'en', tags:[], cn:null, set:null, ...x})); saveColl(); }
       else if(j.collection){ store.set('mtg_collection', j.collection); entries = loadEntries(); saveColl(); }  // import v1
       if(j.tags){ tags = [...new Set(j.tags)]; saveTags(); }
       else if(j.binders){ tags = [...new Set(j.binders.map(b=>b.name))]; saveTags(); }
@@ -890,11 +935,16 @@ async function openPrintPicker(name, preset){
   let prints = [];
   try{ prints = await sfPrints(name); }catch(e){}
   if(!prints.length){ addEntry({name, qty:1, tags:[]}); vCollection($('#app')); return; }
-  let sel = preset.set ? Math.max(0, prints.findIndex(p => p.set === preset.set)) : 0;
+  let sel = 0;
+  if(preset.set){
+    const iCn = prints.findIndex(p => p.set === preset.set && (!preset.cn || String(p.cn) === String(preset.cn)));
+    sel = iCn >= 0 ? iCn : Math.max(0, prints.findIndex(p => p.set === preset.set));
+  }
   const html = `
   <button class="close" id="mclose">✕</button>
   <h3 style="margin-bottom:4px">${esc(prints[0].name)}</h3>
-  <p class="hint">Choisissez l'édition que vous possédez — le visuel, le symbole et le prix suivront cette édition.</p>
+  <p class="hint">Choisissez l'édition que vous possédez — le visuel, le symbole et le prix suivront cette édition.
+  La langue proposée est limitée aux langues existant pour cette carte dans l'édition choisie (anglais par défaut) ; l'état est Near Mint par défaut.</p>
   <div id="ppgrid" class="collgrid" style="margin:10px 0">
     ${prints.map((p,i) => `<div class="colltile" data-i="${i}" style="cursor:pointer;${i===sel?'outline:2px solid var(--accent)':''}">
       ${p.image?`<img src="${p.image}" loading="lazy" style="width:100%;aspect-ratio:488/680;object-fit:cover;background:#000">`:''}
@@ -903,18 +953,14 @@ async function openPrintPicker(name, preset){
     </div>`).join('')}
   </div>
   <div class="row" style="flex-wrap:wrap;gap:10px">
-    <label class="row" style="gap:6px"><input type="checkbox" id="ppfoil"> Foil</label>
+    <label class="row" id="ppfoilwrap" style="gap:6px"><input type="checkbox" id="ppfoil"> Foil</label>
     <label class="row" style="gap:6px"><input type="checkbox" id="ppsigned"> Signée</label>
     <select id="ppcond">
       ${CONDS.map(([v,l]) => `<option value="${v}" ${v==='NM'?'selected':''}>${l}</option>`).join('')}
     </select>
-    <span class="row" style="gap:4px" id="pplangwrap">
-      <b>Langue :</b>
-      <label style="gap:4px"><input type="radio" name="pplang" value="en" checked> EN</label>
-      <label style="gap:4px"><input type="radio" name="pplang" value="fr"> FR</label>
-      <label style="gap:4px"><input type="radio" name="pplang" value="other"> Autre</label>
-      <select id="pplang" style="display:none"></select>
-    </span>
+    <label class="row" style="gap:6px"><b>Langue :</b>
+      <select id="pplang" title="Langues disponibles pour cette carte dans l'édition sélectionnée"></select>
+    </label>
     <input type="number" id="ppqty" value="1" min="1" max="99" style="width:80px">
     <select id="pptags" multiple size="${Math.min(6, Math.max(3, tags.length))}" style="min-width:180px">
       ${tags.map(t=>`<option>${esc(t)}</option>`).join('')}
@@ -923,35 +969,95 @@ async function openPrintPicker(name, preset){
     <button class="btn" id="ppok">Ajouter à la collection</button>
   </div>`;
   openModal(html);
-  $('#ppgrid').querySelectorAll('.colltile').forEach(tl => tl.onclick = () => {
-    sel = +tl.dataset.i;
-    $('#ppgrid').querySelectorAll('.colltile').forEach(x => x.style.outline = '');
-    tl.style.outline = '2px solid var(--accent)';
-  });
+  $('#mclose').onclick = closeModal;
   $('#ppfoil').checked = !!preset.foil;
-  // langues disponibles pour cette carte (prints locaux connus + prints scryfall)
-  const availLangs = [...new Set(prints.map(p => p.lang).filter(Boolean))];
+  if(preset.cond) $('#ppcond').value = preset.cond;
+  // langues proposées : uniquement celles existant pour cette carte DANS l'édition
+  // sélectionnée (champ "lang" de chaque printing renvoyé par l'API Scryfall)
   const langSel = $('#pplang');
-  langSel.innerHTML = availLangs.map(lg => `<option value="${lg}">${LANGS[lg]||lg}</option>`).join('')
-    || '<option value="en">Anglais</option>';
   let langVal = preset.lang || 'en';
-  document.querySelectorAll('input[name="pplang"]').forEach(r => {
-    r.checked = (r.value === 'en' || r.value === 'fr') ? r.value === langVal : r.value === 'other';
-    if(r.value === 'other' && r.checked) langSel.style.display = '';
-    r.onchange = () => {
-      langVal = r.value === 'other' ? langSel.value : r.value;
-      langSel.style.display = r.value === 'other' ? '' : 'none';
-    };
-  });
-  langSel.onchange = () => langVal = langSel.value;
+  let setPool = prints;   // printings de l'édition sélectionnée (requête set:<code> fiable)
+  async function refreshForSel(){
+    const p = prints[sel];
+    try{ const sp = await sfSetPrints(prints[0].name, p.set); if(sp.length) setPool = sp; }catch(e){}
+    if(!setPool.some(x => x.set === p.set)) setPool = prints.filter(x => x.set === p.set);
+    let list = [...new Set(setPool.map(x => x.lang).filter(Boolean))];
+    if(!list.length) list = [...new Set(prints.map(x => x.lang).filter(Boolean))];
+    if(!list.length) list.push('en');
+    langSel.innerHTML = list.map(lg => `<option value="${lg}">${LANGS[lg]||lg}</option>`).join('');
+    langSel.value = list.includes(langVal) ? langVal : (list.includes('en') ? 'en' : (p.lang || list[0]));
+    langVal = langSel.value;
+    // foil uniquement si l'impression sélectionnée existe en foil (finishes Scryfall)
+    const ok = (p.finishes||[]).includes('foil') || !!p.eur_foil;
+    const cb = $('#ppfoil');
+    cb.disabled = !ok; if(!ok) cb.checked = false;
+    $('#ppfoilwrap').style.opacity = ok ? 1 : .45;
+    $('#ppfoilwrap').title = ok ? 'Cette impression existe en foil' : 'Cette impression n\'existe pas en foil';
+  }
+  async function selectTile(i){
+    sel = i;
+    $('#ppgrid').querySelectorAll('.colltile').forEach(x => x.style.outline = '');
+    const tl = $('#ppgrid').querySelector(`.colltile[data-i="${i}"]`);
+    if(tl) tl.style.outline = '2px solid var(--accent)';
+    await refreshForSel();
+  }
+  $('#ppgrid').querySelectorAll('.colltile').forEach(tl => tl.onclick = () => selectTile(+tl.dataset.i));
+  refreshForSel();
+  langSel.onchange = () => {
+    langVal = langSel.value;
+    // si cette édition existe dans la langue choisie, on sélectionne ce printing (n° collecteur adapté)
+    const alt = prints.findIndex(p => p.set === prints[sel].set && p.lang === langVal);
+    if(alt >= 0 && alt !== sel) selectTile(alt);
+  };
   $('#ppnewtag').onclick = () => { const n = prompt('Nom du tag ?');
-    if(n){ tags = [...new Set([...tags, n])]; saveTags(); openPrintPicker(name, {set:prints[sel].set, foil:$('#ppfoil').checked}); } };
+    if(n){ tags = [...new Set([...tags, n])]; saveTags();
+      openPrintPicker(name, {set:prints[sel].set, foil:$('#ppfoil').checked, cond:$('#ppcond').value, lang:langVal}); } };
   $('#ppok').onclick = () => {
     const p = prints[sel];
     const chosen = [...$('#pptags').selectedOptions].map(o=>o.value);
-    addEntry({name:prints[0].name, set:p.set, cn:p.cn, foil:$('#ppfoil').checked, qty:+$('#ppqty').value||1,
+    addEntry({name:prints[0].name, set:p.set, cn:p.cn, foil:$('#ppfoil').checked && !$('#ppfoil').disabled, qty:+$('#ppqty').value||1,
       cond:$('#ppcond').value, lang:langVal, signed:$('#ppsigned').checked, tags:chosen});
     closeModal(); vCollection($('#app')); hydrateColl(entries, $('#app'));
+  };
+}
+/* modal : modifier la langue et/ou l'état d'un groupe existant de la collection */
+async function openEntryEditor(e){
+  let prints = getPrintCache()[e.norm] || [];
+  if(!prints.length){ try{ prints = await sfPrints(e.name); }catch(err){} }
+  let pool = prints;
+  if(e.set){ try{ const sp = await sfSetPrints(e.name, e.set); if(sp.length) pool = sp; }catch(err){} }
+  const inSet = [...new Set(pool.filter(p => p.set === e.set).map(p => p.lang).filter(Boolean))];
+  const all = [...new Set(pool.map(p => p.lang).filter(Boolean))];
+  let langList = inSet.length ? inSet : all;
+  const cur = e.lang || 'en';
+  if(!langList.includes(cur)) langList = [cur, ...langList];
+  if(!langList.length) langList = ['en'];
+  openModal(`
+  <button class="close" id="mclose">✕</button>
+  <h3 style="margin-bottom:4px">${esc(e.name)} — ${e.qty} ex.</h3>
+  <p class="hint">${e.set ? `Édition : <b>${esc(e.set.toUpperCase())}</b>${e.cn ? ` · n° ${esc(String(e.cn))}` : ''}` : 'Édition inconnue'}${e.foil ? ' · FOIL' : ''}${e.signed ? ' · signée' : ''}</p>
+  <div class="row" style="margin-top:12px">
+    <label class="row" style="gap:6px"><b>Langue :</b>
+      <select id="ec-lang" title="Langues disponibles pour cette carte dans cette édition">
+        ${langList.map(lg => `<option value="${lg}" ${lg===cur?'selected':''}>${LANGS[lg]||lg}</option>`).join('')}
+      </select></label>
+    <label class="row" style="gap:6px"><b>État :</b>
+      <select id="ec-cond">${CONDS.map(([v,l]) => `<option value="${v}" ${v===(e.cond||'NM')?'selected':''}>${v} — ${l}</option>`).join('')}</select>
+    </label>
+    <button class="btn" id="ec-ok">Enregistrer</button>
+  </div>`);
+  $('#mclose').onclick = closeModal;
+  $('#ec-ok').onclick = () => {
+    e.cond = $('#ec-cond').value; e.lang = $('#ec-lang').value;
+    const alt = pool.find(p => p.set === e.set && p.lang === e.lang);
+    if(alt) e.cn = alt.cn;   // le n° collecteur suit la langue choisie
+    // fusion avec un groupe identique s'il existe (même édition/foil/signé/état/langue/tags)
+    const same = entries.find(x => x.id !== e.id && x.norm === e.norm && (x.set||null)===(e.set||null)
+      && (x.cn||null)===(e.cn||null) && !!x.foil===!!e.foil && !!x.signed===!!e.signed
+      && (x.cond||'NM')===e.cond && (x.lang||'en')===e.lang
+      && JSON.stringify([...(x.tags||[])].sort())===JSON.stringify([...(e.tags||[])].sort()));
+    if(same){ same.qty += e.qty; entries = entries.filter(x=>x.id!==e.id); collChecked.delete(e.id); }
+    saveColl(); closeModal(); vCollection($('#app'));
   };
 }
 function promptTagsFor(e){
@@ -967,6 +1073,7 @@ function promptTagsFor(e){
    ============================================================ */
 let browseMode = 'sets', browseSet = null, browsePage = 1, browseQuery = '', browseData = null, browseQ = '';
 let advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:''};
+let advSort = '', advLast = null;   // tri courant + dernière réponse Scryfall (pour re-trier sans recharger)
 let setValCache = null;   // code -> {v, date} : valorisation totale d'une extension (calcul à la demande)
 
 function getSetValCache(){
@@ -988,8 +1095,14 @@ function vBrowse(app){
       <div id="setlist"><p class="hint">Chargement des extensions…</p></div>`
     : `
     <div class="filterbar">
-      <input type="text" id="sfq" placeholder="Requête Scryfall libre, ex: o:&quot;draw a card&quot; t:instant" style="flex:1;min-width:260px">
-      <input type="text" id="adartist" placeholder="Artiste, ex: Rebecca Guay" value="${esc(advF.artist)}" style="min-width:170px">
+      <div class="suggbox" style="flex:1;min-width:260px">
+        <input type="text" id="sfq" placeholder="Requête Scryfall libre (o:&quot;draw a card&quot; t:instant…) ou nom de carte en français/anglais (Foudre, Lightning Bolt…)" autocomplete="off" style="width:100%">
+        <div class="suggestions" id="sfqsugg" style="display:none"></div>
+      </div>
+      <div class="suggbox" style="min-width:170px">
+        <input type="text" id="adartist" placeholder="Artiste, ex: Rebecca Guay" value="${esc(advF.artist)}" autocomplete="off" style="width:100%">
+        <div class="suggestions" id="adsugg" style="display:none"></div>
+      </div>
       <span class="colorpick" id="adpick-colors">
         ${['W','U','B','R','G'].map(c => `<span data-c="${c}" class="${advF.colors.includes(c)?'on':''}"
           style="color:${({W:'#f4e8a6',U:'#6db3f2',B:'#b5a6f4',R:'#f26a6a',G:'#7ec97e'})[c]}">${c}</span>`).join('')}
@@ -1005,6 +1118,9 @@ function vBrowse(app){
       <input type="number" id="admin" placeholder="prix min €" value="${esc(advF.pmin)}" min="0">
       <input type="number" id="admax" placeholder="prix max €" value="${esc(advF.pmax)}" min="0">
       <select id="adset"><option value="">Extension : toutes</option></select>
+      <select id="adsort" title="Trier les résultats">
+        ${ADV_SORTS.map(([v,l]) => `<option value="${v}" ${advSort===v?'selected':''}>Tri : ${l}</option>`).join('')}
+      </select>
       <button class="btn" id="gosearch">Rechercher</button>
       <button class="btn ghost" id="adreset">Réinitialiser</button>
     </div>
@@ -1019,6 +1135,47 @@ function vBrowse(app){
     const go = () => { browseQuery = inp.value; browsePage=1; doSearch(app); };
     inp.onkeydown = e => { if(e.key==='Enter') go(); };
     app.querySelector('#gosearch').onclick = go;
+    // autocomplétion du nom de carte (multilingue : Foudre -> Lightning Bolt…) dans la barre de recherche
+    const sugg = app.querySelector('#sfqsugg');
+    let st = null, sitems = [];
+    inp.oninput = () => {
+      clearTimeout(st);
+      const q = inp.value.trim();
+      if(q.length < 2){ sugg.style.display='none'; return; }
+      st = setTimeout(async () => {
+        try{ sitems = await sfAutocomplete(q); }catch(e){ sitems = []; }
+        if(!sitems.length){ sugg.style.display='none'; return; }
+        sugg.innerHTML = sitems.slice(0,8).map((n,i)=>`<div data-i="${i}">🃏 ${esc(n)}</div>`).join('');
+        sugg.style.display='block';
+        sugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
+          e.preventDefault();
+          inp.value = sitems[el.dataset.i]; sugg.style.display='none'; go();
+        });
+      }, 280);
+    };
+    inp.addEventListener('blur', () => setTimeout(() => sugg.style.display='none', 150));
+    // autocomplétion de l'artiste (catalogue Scryfall mis en cache)
+    const ainp = app.querySelector('#adartist'), asugg = app.querySelector('#adsugg');
+    let at = null;
+    ainp.oninput = () => {
+      advF.artist = ainp.value;   // synchro du filtre artiste (a:"…") à la saisie
+      clearTimeout(at);
+      const q = ainp.value.trim().toLowerCase();
+      if(q.length < 2){ asugg.style.display='none'; return; }
+      at = setTimeout(async () => {
+        const list = await sfArtists();
+        const hits = list.filter(a => a.toLowerCase().includes(q)).slice(0,10);
+        if(!hits.length){ asugg.style.display='none'; return; }
+        asugg.innerHTML = hits.map((a,i)=>`<div data-i="${i}">🎨 ${esc(a)}</div>`).join('');
+        asugg.style.display='block';
+        asugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
+          e.preventDefault();
+          ainp.value = hits[el.dataset.i]; advF.artist = ainp.value;
+          asugg.style.display='none'; go();
+        });
+      }, 250);
+    };
+    ainp.addEventListener('blur', () => setTimeout(() => asugg.style.display='none', 150));
     app.querySelector('#adreset').onclick = () => { advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:''}; vBrowse(app); };
     app.querySelectorAll('#adpick-colors span').forEach(s => s.onclick = () => {
       s.classList.toggle('on');
@@ -1035,10 +1192,12 @@ function vBrowse(app){
     app.querySelector('#admin').onchange = e => advF.pmin = e.target.value;
     app.querySelector('#admax').onchange = e => advF.pmax = e.target.value;
     app.querySelector('#adartist').onkeydown = e => { if(e.key==='Enter') go(); };
-    // liste des extensions dans le filtre
+    app.querySelector('#adsort').onchange = e => { advSort = e.target.value; renderAdvResults(app); };
+    // liste des extensions dans le filtre, triées par nom d'édition (ordre alphabétique)
     sfSets().then(sets => {
       const sel = app.querySelector('#adset'); if(!sel) return;
-      sel.innerHTML = `<option value="">Extension : toutes</option>` + sets.map(s =>
+      const sorted = sets.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
+      sel.innerHTML = `<option value="">Extension : toutes</option>` + sorted.map(s =>
         `<option value="${s.code}" ${advF.set===s.code?'selected':''}>${esc(s.name)}</option>`).join('');
       sel.onchange = e => advF.set = e.target.value;
     }).catch(()=>{});
@@ -1046,10 +1205,12 @@ function vBrowse(app){
   }
 }
 
-/* requête Scryfall combinée depuis les filtres avancés */
-function buildAdvQuery(){
+/* requête Scryfall combinée depuis les filtres avancés.
+   nameQ : nom anglais résolu (si la saisie était un nom localisé, ex: Foudre -> Lightning Bolt) */
+function buildAdvQuery(nameQ){
   const q = [];
-  if(browseQuery.trim()) q.push(`(${browseQuery.trim()})`);
+  if(nameQ) q.push(`!"${nameQ}"`);
+  else if(browseQuery.trim()) q.push(`(${browseQuery.trim()})`);
   if(advF.artist.trim()) q.push(`a:"${advF.artist.trim().replace(/"/g,'')}"`);
   if(advF.colors.length) q.push(`(c:${advF.colors.join(' or c:')})`);
   if(advF.types.length) q.push(`(t:${advF.types.join(' or t:')})`);
@@ -1162,50 +1323,207 @@ async function vSetDetail(app){
     if(j.has_more) pager.querySelector('#next').onclick = () => { browsePage++; vBrowse(app); };
   }catch(e){ app.querySelector('#setcards').innerHTML = '<p class="hint">Erreur de chargement.</p>'; }
 }
+/* ---- tri des résultats de la recherche avancée ---- */
+const ADV_SORTS = [
+  ['','Par défaut (Scryfall)'],
+  ['name-asc','Nom A → Z'], ['name-desc','Nom Z → A'],
+  ['date-asc',"Date d'impression ↑"], ['date-desc',"Date d'impression ↓"],
+  ['set-asc',"Nom d'édition A → Z"], ['set-desc',"Nom d'édition Z → A"],
+  ['price-asc','Prix croissant'], ['price-desc','Prix décroissant'],
+  ['val-asc','Valeur dans la collection ↑'], ['val-desc','Valeur dans la collection ↓'],
+  ['type','Type de carte'],
+  ['cmc-asc','Coût de mana ↑'], ['cmc-desc','Coût de mana ↓'],
+];
+const advCardPrice = c => { const v = parseFloat(c.prices?.eur || c.prices?.eur_foil || ''); return isNaN(v) ? null : v; };
+const advCardVal = c => {   // valeur totale possédée de cette carte dans cette édition (× prix de l'impression)
+  const p = advCardPrice(c); if(p == null) return null;
+  const q = entries.filter(e => e.norm===norm(c.name) && e.set===c.set).reduce((a,e)=>a+e.qty,0);
+  return p * q;
+};
+function sortCards(cards, mode){
+  if(!mode) return cards;
+  const dir = mode.endsWith('-desc') ? -1 : 1;
+  const base = mode.replace(/-(asc|desc)$/, '');
+  const keyFns = {
+    name: c => (c.name||'').toLowerCase(),
+    date: c => c.released_at || null,
+    set:  c => (c.set_name||'').toLowerCase(),
+    price: advCardPrice,
+    val:  advCardVal,
+    type: c => (c.type_line||'').toLowerCase(),
+    cmc:  c => (c.cmc ?? null),
+  };
+  const kf = keyFns[base] || keyFns.name;
+  return cards.slice().sort((a,b) => {
+    const ka = kf(a), kb = kf(b);
+    if(ka == null && kb == null) return 0;
+    if(ka == null) return 1;     // valeurs inconnues toujours en dernier
+    if(kb == null) return -1;
+    const r = (typeof ka === 'number') ? ka - kb : String(ka).localeCompare(String(kb));
+    if(r !== 0) return r * dir;
+    return String(a.name).localeCompare(String(b.name));   // départage par nom
+  });
+}
 async function doSearch(app){
   const box = app.querySelector('#searchres');
-  const q = buildAdvQuery();
+  let q = buildAdvQuery();
+  // requête libre sans opérateur Scryfall : si l'autocomplétion anglaise ne trouve rien,
+  // on résout un éventuel nom localisé (ex: Foudre, Blitzschlag -> nom anglais) et on
+  // recherche alors toutes les impressions de la carte, comme avec le nom anglais
+  const raw = browseQuery.trim();
+  if(raw && !/[:()"<>=\-]/.test(raw)){
+    try{
+      const ja = await sfFetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(raw)}`);
+      if(ja.data && ja.data.length){
+        // hit anglais -> on garde la requête telle quelle (comportement Scryfall standard)
+      } else {
+        // pas de hit anglais -> nom localisé : correspondance exacte du nom imprimé,
+        // toutes langues (Foudre -> Lightning Bolt), en préférant le nom exact non split
+        let names = [];
+        const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+raw+'"')}&unique=prints&include_extras=true`);
+        if(j.data && j.data.length) names = [...new Set(j.data.map(c=>c.name))];
+        if(!names.length) names = await sfAutocomplete(raw);   // repli : lang:fr/de/… !"raw"
+        if(names.length){
+          const exact = names.find(n => norm(n) === norm(raw)) || names.find(n => !n.includes('//')) || names[0];
+          const alias = store.get('mtg_name_alias', {}); alias[norm(raw)] = exact; store.set('mtg_name_alias', alias);
+          q = buildAdvQuery(exact);
+        }
+      }
+    }catch(e){}
+  }
   if(!q){ box.innerHTML = '<p class="hint">Saisissez une requête ou des filtres.</p>'; return; }
   box.innerHTML = '<p class="hint">Recherche…</p>';
   try{
     const j = await sfSearch(q, browsePage);
-    renderCardGrid(box, j.data);
-    const pager = document.createElement('div'); pager.className='row'; pager.style.marginTop='12px';
-    pager.innerHTML = `<button class="btn ghost" id="prev" ${j.has_previous?'':'disabled'}>←</button>
-      <span class="hint">${j.total_cards} résultats — page ${browsePage}</span>
-      <button class="btn ghost" id="next" ${j.has_more?'':'disabled'}>→</button>`;
-    box.appendChild(pager);
-    if(j.has_previous) pager.querySelector('#prev').onclick = () => { browsePage--; doSearch(app); };
-    if(j.has_more) pager.querySelector('#next').onclick = () => { browsePage++; doSearch(app); };
+    advLast = {j, q};
+    renderAdvResults(app);
   }catch(e){ box.innerHTML = `<p class="hint">Aucun résultat ou erreur (vérifiez la requête : "${esc(q)}").</p>`; }
 }
+/* ré-affiche la dernière réponse Scryfall en appliquant le tri courant (sans re-requête) */
+function renderAdvResults(app){
+  const box = app.querySelector('#searchres');
+  if(!box || !advLast) return;
+  const j = advLast.j;
+  renderCardGrid(box, sortCards(j.data, advSort));
+  const pager = document.createElement('div'); pager.className='row'; pager.style.marginTop='12px';
+  pager.innerHTML = `<button class="btn ghost" id="prev" ${j.has_previous?'':'disabled'}>←</button>
+    <span class="hint">${j.total_cards} résultats — page ${browsePage}</span>
+    <button class="btn ghost" id="next" ${j.has_more?'':'disabled'}>→</button>`;
+  box.appendChild(pager);
+  if(j.has_previous) pager.querySelector('#prev').onclick = () => { browsePage--; doSearch(app); };
+  if(j.has_more) pager.querySelector('#next').onclick = () => { browsePage++; doSearch(app); };
+}
 function renderCardGrid(box, cards){
+  // langues réellement disponibles par édition (agrégées sur la page : une édition = souvent plusieurs langues)
+  const cardLangs = {};
+  cards.forEach(c => { const k2 = c.set+'|'+norm(c.name); (cardLangs[k2] = cardLangs[k2] || new Set()).add(c.lang); });
   box.innerHTML = `<div class="cardgrid">${cards.map(c => {
     const img = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '';
     const k = norm(c.name);
-    const q = collection[k]?.qty || 0;
+    // quantité possédée pour cette carte dans CETTE édition (toutes langues / états / n° confondus)
+    const q = entries.filter(e => e.norm===k && e.set===c.set).reduce((a,e)=>a+e.qty,0);
     const price = c.prices?.eur || c.prices?.eur_foil;
-    return `<div class="cardtile">
-      <img src="${img}" loading="lazy" alt="${esc(c.name)}" data-name="${esc(c.name)}" data-zoom="${c.image_uris?.large || img}" class="cinfo">
+    const langs = [...(cardLangs[c.set+'|'+k] || [c.lang])].map(l=>(l||'en').toUpperCase()).join('/');
+    return `<div class="cardtile" data-name="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}" style="cursor:pointer" title="Cliquez pour ajouter à la collection (langue, état…)">
+      ${q?`<span class="qtyb">×${q}</span>`:''}
+      <img src="${img}" loading="lazy" alt="${esc(c.name)}" data-zoom="${c.image_uris?.large || img}">
       <div class="info">
         <div class="name">${esc(c.name)}</div>
-        <div class="pill">${esc(c.set?.toUpperCase()||'')} · ${c.released_at?.slice(0,4)||''} · ${c.rarity||''}</div>
+        <div class="pill">${esc(c.set?.toUpperCase()||'')} · ${c.released_at?.slice(0,4)||''} · ${c.rarity||''} · ${langs}</div>
         <div class="price">${price?eur(price):''}</div>
-        <div class="qty-ctl">
-          <button data-a="dec" data-n="${esc(c.name)}">−</button><b data-q="${esc(c.name)}">${q}</b><button data-a="inc" data-n="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}">+</button>
-        </div>
       </div>
     </div>`; }).join('')}</div>`;
-  box.querySelectorAll('.qty-ctl button').forEach(b => b.onclick = () => {
-    const n = b.dataset.n, k = norm(n);
-    if(b.dataset.a==='inc'){ addEntry({name:n, set:b.dataset.set||null, cn:b.dataset.cn||null, qty:1, tags:[]}); }
-    else {
-      const mine = entries.filter(e => e.norm === k);
-      if(mine.length){ const e = mine[mine.length-1]; e.qty--; if(e.qty<=0) entries = entries.filter(x=>x.id!==e.id); saveColl(); }
+  // clic sur une carte -> popup d'ajout pour CETTE impression (édition fixée, langue selon l'édition, état)
+  box.querySelectorAll('.cardtile').forEach(tl => tl.onclick = () =>
+    openAddPopup(tl.dataset.name, {set: tl.dataset.set, cn: tl.dataset.cn}));
+}
+/* popup d'ajout rapide depuis une tuile (recherche avancée / détail d'extension) :
+   l'édition est fixée à l'impression cliquée — pas de grille de choix d'édition */
+async function openAddPopup(name, preset){
+  preset = preset || {};
+  let prints = [];
+  try{ prints = await sfPrints(name); }catch(e){}
+  if(!prints.length){ addEntry({name, qty:1, tags:[]}); return; }
+  // printings de CETTE édition, toutes langues (requête set:<code> !"nom" — source fiable)
+  let pool = prints;
+  if(preset.set){
+    try{ const sp = await sfSetPrints(name, preset.set); if(sp.length) pool = sp; }catch(e){}
+  }
+  let cur = (preset.set && pool.find(x => x.set===preset.set && (!preset.cn || String(x.cn)===String(preset.cn))))
+         || (preset.set && pool.find(x => x.set===preset.set)) || pool[0] || prints[0];
+  // langues disponibles pour cette carte DANS cette édition (champ lang des printings Scryfall)
+  let langList = [...new Set(pool.filter(x => x.set===cur.set).map(x => x.lang).filter(Boolean))];
+  if(!langList.length) langList = [...new Set(pool.map(x => x.lang).filter(Boolean))];
+  if(!langList.length) langList = [...new Set(prints.map(x => x.lang).filter(Boolean))];
+  if(!langList.length) langList.push('en');
+  let langVal = langList.includes('en') ? 'en' : (cur.lang || langList[0]);   // anglais par défaut si dispo
+  const foilOk = p => (p.finishes||[]).includes('foil') || !!p.eur_foil;        // imprimée en foil ou non
+  openModal(`
+  <button class="close" id="mclose">✕</button>
+  <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
+    <img id="apimg" src="${cur.image||''}" style="width:150px;border-radius:10px;background:#000" alt="">
+    <div style="flex:1;min-width:260px">
+      <h3 style="margin-bottom:2px">${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h3>
+      <p class="hint" id="apsetline">Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span></p>
+      <p id="apprice" style="color:var(--warn);font-weight:700;margin:4px 0">${eur(cur.eur)}${cur.eur_foil?` / ✦ ${eur(cur.eur_foil)}`:''}</p>
+      <div class="row" style="flex-wrap:wrap;gap:10px">
+        <label class="row" style="gap:6px"><b>Langue :</b>
+          <select id="aplang" title="Langues disponibles pour cette carte dans cette édition">
+            ${langList.map(lg => `<option value="${lg}" ${lg===langVal?'selected':''}>${LANGS[lg]||lg}</option>`).join('')}
+          </select></label>
+        <label class="row" style="gap:6px"><b>État :</b>
+          <select id="apcond">${CONDS.map(([v,l]) => `<option value="${v}" ${v==='NM'?'selected':''}>${v} — ${l}</option>`).join('')}</select></label>
+        <label class="row" id="apfoilwrap" style="gap:6px" title="${foilOk(cur)?'Cette impression existe en foil':'Cette impression n\'existe pas en foil'}"><input type="checkbox" id="apfoil" ${foilOk(cur)?'':'disabled'}> Foil</label>
+        <label class="row" style="gap:6px"><input type="checkbox" id="apsigned"> Signée</label>
+        <label class="row" style="gap:6px"><b>Qté :</b> <input type="number" id="apqty" value="1" min="1" max="99" style="width:70px"></label>
+      </div>
+      <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">
+        <select id="aptags" multiple size="${Math.min(6, Math.max(3, tags.length))}" style="min-width:180px">
+          ${tags.map(t=>`<option>${esc(t)}</option>`).join('')}
+        </select>
+        <button class="btn ghost" id="apnewtag">+ tag</button>
+        <button class="btn" id="apok">Ajouter à la collection</button>
+      </div>
+    </div>
+  </div>`);
+  $('#mclose').onclick = closeModal;
+  // changer de langue = changer de printing dans la même édition (visuel, n°, prix, foil mis à jour)
+  $('#aplang').onchange = e => {
+    langVal = e.target.value;
+    const alt = pool.find(x => x.set===cur.set && x.lang===langVal);
+    if(alt && alt !== cur){
+      cur = alt;
+      $('#apimg').src = cur.image || '';
+      $('#apsetline').innerHTML = `Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span>`;
+      $('#apprice').textContent = `${eur(cur.eur)}${cur.eur_foil?` / ✦ ${eur(cur.eur_foil)}`:''}`;
+      const ok = foilOk(cur), cb = $('#apfoil');
+      cb.disabled = !ok; if(!ok) cb.checked = false;
+      $('#apfoilwrap').style.opacity = ok ? 1 : .45;
+      $('#apfoilwrap').title = ok ? 'Cette impression existe en foil' : 'Cette impression n\'existe pas en foil';
     }
-    b.parentElement.querySelector('b').textContent = collection[k]?.qty || 0;
+  };
+  $('#apnewtag').onclick = () => { const n = prompt('Nom du tag ?');
+    if(n){ tags = [...new Set([...tags, n])]; saveTags();
+      $('#aptags').innerHTML += `<option selected>${esc(n)}</option>`; } };
+  $('#apok').onclick = () => {
+    const chosen = [...$('#aptags').selectedOptions].map(o=>o.value);
+    const foil = !$('#apfoil').disabled && $('#apfoil').checked;
+    addEntry({name:cur.name, set:cur.set, cn:cur.cn, foil, signed:$('#apsigned').checked,
+      qty:+$('#apqty').value||1, cond:$('#apcond').value, lang:langVal, tags:chosen});
+    closeModal();
+    refreshTileOwned(cur.name, cur.set);   // met à jour le badge ×N sans relancer la recherche
+  };
+}
+/* met à jour le badge ×N des tuiles d'une carte+édition (toutes langues/états confondus) */
+function refreshTileOwned(name, set){
+  const k = norm(name);
+  const q = entries.filter(e => e.norm===k && e.set===set).reduce((a,e)=>a+e.qty,0);
+  document.querySelectorAll('.cardtile').forEach(tl => {
+    if(tl.dataset.set !== set || norm(tl.dataset.name) !== k) return;
+    let b = tl.querySelector('.qtyb');
+    if(q>0){ if(!b){ b = document.createElement('span'); b.className='qtyb'; tl.prepend(b); } b.textContent = '×'+q; }
+    else if(b) b.remove();
   });
-  box.querySelectorAll('.cardtile img').forEach(im => im.onclick = () => showCardInfo(im.dataset.name));
 }
 /* ============================================================
    VUE TOURNOIS & DECKS
@@ -1903,24 +2221,35 @@ function vCardSearch(app){
     }, 260);
   };
 }
-async function showCardInfo(name, box){
+async function showCardInfo(name, box, ctx){
   box = box || $('#modal');
   if(!box.classList || !box.classList.contains('modal')) openModal('');
   if(box === $('#modal')) openModal('<p class="hint">Chargement…</p>');
-  let c; try{ c = sfCache[norm(name)] || await sfCardByName(name); }catch(e){}
+  let c = null;
+  // ctx = {set, cn} : affiche l'édition cliquée (ex. depuis la collection), pas la 1re impression
+  if(ctx && ctx.set){
+    try{
+      const prints = await sfPrints(name);
+      c = prints.find(p => p.set === ctx.set && (!ctx.cn || String(p.cn) === String(ctx.cn)))
+        || prints.find(p => p.set === ctx.set) || null;
+    }catch(e){}
+  }
+  if(!c){ try{ c = sfCache[norm(name)] || await sfCardByName(name); }catch(e){} }
   if(!c){ box.innerHTML = `<p class="hint">Carte introuvable sur Scryfall.</p>`; return; }
   const auto = deriveTags(c), custom = getCustomTags(name);
   const have = collection[norm(name)]?.qty || 0;
+  const mine = entries.filter(e => e.norm === norm(name));
   box.innerHTML = `
     <button class="close" id="mclose">✕</button>
     <div class="row" style="align-items:flex-start;gap:20px">
       <img src="${c.image||''}" style="width:230px;border-radius:12px;background:#000">
       <div style="flex:1">
         <h2>${esc(c.name)}</h2>
-        <p class="hint">${esc(c.type_line||'')} · mv ${c.mv} · ${esc(c.set_name||'')} (${esc((c.set||'').toUpperCase())}, ${esc(c.released_at||'')})</p>
+        <p class="hint">${esc(c.type_line||'')} · mv ${c.mv} · ${esc(c.set_name||'')} (${esc((c.set||'').toUpperCase())}, ${esc(c.released_at||'')})${c.cn?` · n° ${esc(String(c.cn))}`:''}${c.lang?` · <b>${LANGS[c.lang]||c.lang}</b> (${c.lang.toUpperCase()})`:''}</p>
         <p style="margin:8px 0"><span class="price" style="color:var(--warn);font-weight:700">${eur(c.eur)}</span>
         ${c.eur_foil?`<span class="hint"> · foil ${eur(c.eur_foil)}</span>`:''} <span class="pill">(prix Cardmarket via Scryfall)</span></p>
         <div class="qty-ctl"><button id="ci-dec">−</button><b id="ci-q">${have}</b><button id="ci-inc">+</button> <span class="hint">dans ma collection</span></div>
+        ${mine.length ? `<p class="hint" style="margin-top:2px">Possédées : ${mine.map(e=>`${e.qty}× ${e.set?esc(e.set.toUpperCase()):'?'} · ${(e.lang||'en').toUpperCase()} · ${e.cond||'NM'}${e.foil?' · ✦':''}${e.signed?' · ✍':''}`).join(' ; ')}</p>` : ''}
         <h4 class="sub">Métadonnées</h4>
         <div>${auto.map(t=>`<span class="tag auto">${esc(t)}</span>`).join('')||'<span class="hint">—</span>'}</div>
         <div>${custom.map(t=>`<span class="tag custom" data-ct="${esc(t)}">${esc(t)} ✕</span>`).join('')}

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MTG Studio — serveur de données (version 2026-11-14b)
+MTG Studio — serveur de données (version 2026-11-15a)
 ================================
 Sert l'app (index.html, app.js, decks.json.gz) ET enregistre vos saisies
 (collection, classeurs, matchs, tags) dans une vraie base de données

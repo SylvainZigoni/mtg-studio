@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="version" content="2026-11-14b">
+<meta name="version" content="2026-11-15a">
 <title>MTG Studio — Collection & Decks 2026</title>
 <style>
 :root{
@@ -77,7 +77,8 @@ tr:hover td{background:var(--panel2)}
 .bar{height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin:8px 0}
 .bar div{height:100%;border-radius:6px}
 .cardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px}
-.cardtile{background:var(--panel2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.cardtile{background:var(--panel2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.cardtile .qtyb{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.75);color:#fff;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:700;z-index:2}
 .cardtile img{width:100%;aspect-ratio:488/680;object-fit:cover;background:#000;cursor:pointer}
 .cardtile .info{padding:8px 10px;font-size:12px;flex:1}
 .cardtile .name{font-weight:600;font-size:13px;line-height:1.25;height:2.5em;overflow:hidden}
@@ -124,6 +125,8 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .matchline .l{color:var(--bad);font-weight:700}
 .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
 .pill{font-size:12px;color:var(--muted)}
+.pillbtn{border:1px solid var(--border);border-radius:10px;padding:0 6px;margin-left:3px;cursor:pointer;background:var(--panel)}
+.pillbtn:hover{border-color:var(--accent);color:var(--accent)}
 .link{color:var(--accent);cursor:pointer;text-decoration:underline}
 input[type=range]{accent-color:var(--accent)}
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}
