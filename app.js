@@ -1583,7 +1583,7 @@ let editingId = null;   // id du match en cours de modification (null = nouveau)
 
 function defaultMatchDraft(){
   return {date: new Date().toISOString().slice(0,10), type:'amical',
-          format: Object.keys(FMT_NAMES)[0] || '', toss:'1',
+          format: store.get('mtg_last_fmt', null) || Object.keys(FMT_NAMES)[0] || '', toss:'1',
           myDeck:'', myArch:'', oppName:'', oppArch:''};
 }
 // Copie l'état actuel du formulaire vers le brouillon (appelé à chaque saisie)
@@ -1648,7 +1648,7 @@ function vMatches(app){
     <h3 style="margin-bottom:10px">Historique (${matches.length} matchs)</h3>
     ${matches.length ? matches.slice().reverse().map(m => `
       <div class="matchline" data-id="${m.id}">
-        <span class="badge ${m.result==='V'?'b-ok':'b-warn'}">${m.result==='V'?'VICTOIRE':'DÉFAITE'} ${m.score}</span>
+        <span class="badge ${m.result==='V'?'b-ok':m.result==='N'?'b-null':'b-warn'}">${m.result==='V'?'VICTOIRE':m.result==='N'?'MATCH NUL':'DÉFAITE'} ${m.score}</span>
         <span class="fmt">${fmtName(m.format)}</span>
         <b>${esc(m.myDeck||m.myArch)}</b> vs <b>${esc(m.oppArch||'?')}</b>
         <span class="hint">${esc(m.oppName||'adversaire')}</span>
@@ -1709,6 +1709,7 @@ function vMatches(app){
     } else {
       matches.push(rec);
     }
+    store.set('mtg_last_fmt', matchDraft.format);   // le prochain match reprend ce format
     saveMatches(); resetMatchForm(); vMatches(app);
   };
 }
@@ -1797,6 +1798,8 @@ function vStats(app){
 function renderStatsBody(body, ms, tab){
   const games = ms.flatMap(m => m.games || []);
   const wins = ms.filter(m=>m.result==='V').length;
+  const draws = ms.filter(m=>m.result==='N').length;
+  const losses = ms.length - wins - draws;
   const wr = ms.length ? Math.round(wins/ms.length*100) : 0;
   const totMull = games.reduce((a,g)=>a+(g.mull||0),0);
   const gamesNoMull = games.filter(g=>!g.mull), gamesMull = games.filter(g=>!!g.mull);
@@ -1807,11 +1810,13 @@ function renderStatsBody(body, ms, tab){
     <div class="kpi"><div class="v">${ms.length}</div><div class="l">matchs</div></div>
     <div class="kpi"><div class="v">${games.length}</div><div class="l">manches</div></div>
     <div class="kpi"><div class="v">${wr}%</div><div class="l">winrate match</div></div>
+    <div class="kpi"><div class="v">${wins} / ${draws} / ${losses}</div><div class="l">V / N / D</div></div>
     <div class="kpi"><div class="v">${totMull}</div><div class="l">mulligans totaux</div></div>
   </div>
   ${ms.length<2 ? '<p class="hint">Enregistrez des matchs (onglet ⚔️) pour voir les statistiques se construire.</p>' : `
   <div class="statgrid">
-    <div class="panel"><h4 class="sub">Winrate global</h4><canvas class="chart" id="donut"></canvas></div>
+    <div class="panel"><h4 class="sub">Winrate global</h4><canvas class="chart" id="donut"></canvas>
+      <div class="hint" style="text-align:center"><span style="color:#3ecf6f">victoires</span> · <span style="color:#9aa1b5">nuls</span> · <span style="color:#ff5b6a">défaites</span></div></div>
     <div class="panel"><h4 class="sub">Impact des mulligans (winrate par manche)</h4>
       <table><tr><td>Manche sans mulligan</td><td><b>${wrm(gamesNoMull)??'—'}%</b> (${gamesNoMull.length})</td></tr>
       <tr><td>Manche avec mulligan(s)</td><td><b>${wrm(gamesMull)??'—'}%</b> (${gamesMull.length})</td></tr></table></div>
@@ -1821,7 +1826,7 @@ function renderStatsBody(body, ms, tab){
     <div class="panel"><h4 class="sub">Matchs par mois</h4><canvas class="chart" id="months"></canvas></div>
   </div>`}`;
   if(ms.length>=2){
-    chartDonut($('#donut'), [wins, ms.length-wins], ['victoires',''],['#3ecf6f','#ff5b6a']);
+    chartDonut($('#donut'), [wins, draws, losses], ['victoires','nuls','défaites'], ['#3ecf6f','#9aa1b5','#ff5b6a']);
     const byMonth = new Map();
     ms.forEach(m => { const k = (m.date||'').slice(0,7); byMonth.set(k, (byMonth.get(k)||0)+1); });
     const months = [...byMonth.entries()].sort((a,b)=>a[0].localeCompare(b[0])).slice(-12);
