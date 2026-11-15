@@ -1,4 +1,4 @@
-import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS } from '../core/util.js';
+import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
@@ -13,9 +13,6 @@ import { R, S } from '../core/registry.js';
 /* état de la vue collection */
 let collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:''};
 let collSort = 'name', collDir = 1, collView = 'list', collChecked = new Set(), collPending = false;
-
-/* métadonnées d'une entrée depuis le cache des prints (sync, null si pas encore connu) */
-const TYPES_LIST = ['Creature','Instant','Sorcery','Artifact','Enchantment','Land','Planeswalker','Battle'];
 
 function collFilterAndSort(){
   let list = entries.slice();

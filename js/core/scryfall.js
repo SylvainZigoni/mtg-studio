@@ -156,6 +156,7 @@ async function sfArtists(){   // catalogue des noms d'artistes (autocomplétion)
   return list;
 }
 
+/* métadonnées d'une entrée depuis le cache des prints (sync, null si pas encore connu) */
 function entryPrintSync(e){
   const prints = getPrintCache()[e.norm];
   if(!prints) return null;

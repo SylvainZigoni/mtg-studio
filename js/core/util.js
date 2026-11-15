@@ -16,5 +16,6 @@ const fmtName = f => FMT_NAMES[f] || f;
 const CONDS = [['MT','Mint'],['NM','Near Mint'],['EX','Excellent'],['GD','Good'],['LP','Light Played'],['PL','Played'],['PO','Poor']];
 const COND_LABEL = Object.fromEntries(CONDS);
 const LANGS = {en:'Anglais', fr:'Français', de:'Allemand', es:'Espagnol', it:'Italien', pt:'Portugais', ja:'Japonais', ko:'Coréen', ru:'Russe', 'zhs':'Chinois (simplifié)', 'zht':'Chinois (traditionnel)', ph:'Phyrexian', cs:'Tchèque'};
+const TYPES_LIST = ['Creature','Instant','Sorcery','Artifact','Enchantment','Land','Planeswalker','Battle'];
 
-export { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS };
+export { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST };
