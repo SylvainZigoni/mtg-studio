@@ -6,7 +6,7 @@ Dossier : `App MTG`, lancée avec `python server.py`, ouverte sur http://localho
 ## Fichiers
 
 - `server.py` : serveur HTTP Python, **zéro dépendance** (bibliothèque standard). Sert l'app ET enregistre les saisies (collection, classeurs, matchs, tags) dans `mtg_data.db` (SQLite créé à côté). Ne jamais suggérer `python -m http.server` (pas de POST).
-- `index.html` + `app.js` : application monopage. **Toujours modifier les deux de façon cohérente** : un app.js récent avec un index.html ancien fait planter le boot avant tout fetch ("Chargement des 41 366 decks…" sans fin). app.js a un garde `if(!$('#sidebar') || !$('#burger'))` pour détecter ce cas.
+- `index.html` + `css/` + `js/` : application monopage découplée (phase 1, branche `dev-client`). `index.html` charge `css/reset.css` PUIS `css/app.css`, puis `<script type="module" src="js/main.js">`. Le client est découpé en modules ES : `js/main.js` (boot, routage, recherche globale), `js/ui.js`, `js/core/` (util, store, scryfall, model, decks, cards, registry — le registry `R`/`S` évite les imports circulaires entre vues), `js/views/` (collection, browse, decks, matches, stats, cardinfo, mydecks, market, statscoll, settings). **Toujours modifier index.html et js/ de façon cohérente** : un js/ récent avec un index.html ancien fait planter le boot avant tout fetch ("Chargement des 41 366 decks…" sans fin). `js/main.js` a un garde `if(!$('#sidebar') || !$('#burger'))` pour détecter ce cas.
 - `decks.json.gz` : 41 366 decks MTGTop8, tournois 2026 (Modern, Legacy, Vintage, Pauper, Premodern, Duel Commander).
 - `prices.db` : historique de prix Cardmarket (SQLite, ~103 935 séries + 120 143 cartes, seed 14/11/2026).
 - `price_seed.py` : construit/met à jour prices.db depuis MTGJSON. Modes : `prices` (re-seed complet), `cards`, `weekly` (fusion fenêtre 3 mois, idempotent, auto-réparateur : comble tout trou ≤ 3 mois).
@@ -20,7 +20,7 @@ Dossier : `App MTG`, lancée avec `python server.py`, ouverte sur http://localho
 - Endpoints server.py : `/api/price`, `/api/market` (top/flop, fenêtres 1w/1m/1y/3y/5y/10y/rel, scope all|collection, cache 12h), `/api/collvalue`, `/api/price/today` (GET et POST), `/api/mkm/*`. SYNC_KEYS inclut mtg_decks.
 - Price blobs prices.db : uint32 count puis paires (int32 jour ordinal, float32 prix). `struct.iter_unpack` exige un slice exact `memoryview(blob)[4:4+8*n]`, prix à offset +4 dans l'enregistrement.
 - Parsing JSON streaming (classe Stream dans price_seed.py) : virgules via skip_ws, chaînes/nombres coupés entre buffers, colonnes "set" quoted, fichiers MTGJSON enveloppés dans `data`.
-- app.js : `store.set` ne fait pushState que si window.__booted. Index DECKS : d[3]=nom deck, d[4]=archétype, d[5]=joueur, d[9]=eid, d[10]/d[11]=main/side, d[12]=players. Caches sfCache/print par norm(name).
+- Client (js/) : `store.set` (js/core/store.js) ne fait pushState que si window.__booted. Index DECKS : d[3]=nom deck, d[4]=archétype, d[5]=joueur, d[9]=eid, d[10]/d[11]=main/side, d[12]=players. Caches sfCache/print par norm(name).
 - Vues : burger/sidebar, recherche globale, decks perso (vMyDecks/openMyDeck, changelog, commentaires, autocomplete, comparaison collection), visualiseur partagé (dvGroup type/CMC, dvTab main/side, chartBars mana, chartDonut coûts/lands, deckLegalities), collection (NM, langues, signée, addedAt, badges RL), vMarket, vStatsColl, vSettings Cardmarket + CSV "a vendre", loadPriceChart/drawPriceChart via /api/price?sfid=.
 
 ## Pièges SQLite
