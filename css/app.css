@@ -127,13 +127,13 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .pillbtn:hover{border-color:var(--accent);color:var(--accent)}
 .infopill{border:1px solid var(--border);border-radius:10px;padding:0 6px;margin-left:3px;background:var(--panel)}
 /* pastille d'état : couleur fixe selon la condition, identique dans tous les thèmes */
-.cond-MT{color:#17A2B8;border-color:#17A2B8;background:#17A2B81F}
-.cond-NM{color:#3BAE56;border-color:#3BAE56;background:#3BAE561F}
-.cond-EX{color:#82891E;border-color:#82891E;background:#82891E1F}
-.cond-GD{color:#FFC107;border-color:#FFC107;background:#FFC1071F}
-.cond-LP{color:#FB892A;border-color:#FB892A;background:#FB892A1F}
-.cond-PL{color:#E06370;border-color:#E06370;background:#E063701F}
-.cond-PO{color:#DC3545;border-color:#DC3545;background:#DC35451F}
+.cond-MT{color:#fff;border-color:#17A2B8;background:#17A2B8}
+.cond-NM{color:#fff;border-color:#3BAE56;background:#3BAE56}
+.cond-EX{color:#fff;border-color:#82891E;background:#82891E}
+.cond-GD{color:#fff;border-color:#FFC107;background:#FFC107}
+.cond-LP{color:#fff;border-color:#FB892A;background:#FB892A}
+.cond-PL{color:#fff;border-color:#E06370;background:#E06370}
+.cond-PO{color:#fff;border-color:#DC3545;background:#DC3545}
 .link{color:var(--accent);cursor:pointer;text-decoration:underline}
 input[type=range]{accent-color:var(--accent)}
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}
