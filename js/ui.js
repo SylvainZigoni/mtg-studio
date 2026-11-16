@@ -8,7 +8,8 @@ function closeModal(){ $('#modalbg').classList.remove('open'); }
 
 /* ---- jauge de prix à deux poignées (échelle logarithmique) ----
    Bornes initiales : /api/pricerange (min/max de prices.db), repli 0,01 €..1000 €.
-   setPriceBounds(min,max) resserre ensuite la jauge sur les résultats du filtre courant.
+   setPriceBounds(min,max) ne fait qu'élargir la plage si besoin (cache froid) : l'échelle reste stable,
+   les poignées restent déplaçables sur toute la plage et affichent toujours la vraie valeur.
    F.pmin / F.pmax : '' = pas de borne (poignée à l'extrémité). */
 let priceRangeCache = null;
 async function fetchPriceRange(){
@@ -31,10 +32,12 @@ function priceRangeHTML(){
 let activeGauge = null;
 /* branche la jauge sur F.pmin/F.pmax ; onSearch appelé au relâchement d'une poignée.
    Synchrone si le cache de bornes est chaud (pour que setPriceBounds juste après fonctionne). */
-function wirePriceRange(app, F, onSearch){
+function wirePriceRange(app, F, onSearch, bounds){
   const box = app.querySelector('#pricerange'); if(!box) return;
   const wire = range => {
     const g = { F, floor: range.min, top: range.max };
+    g.fullFloor = range.min; g.fullTop = range.max;   // plage complète, ne se resserre jamais
+    if(bounds && bounds[1] > 0){ let ba = Math.max(0.01, +bounds[0] || 0), bb = +bounds[1]; if(bb <= ba) bb = ba + Math.max(0.01, ba * 0.01); g.floor = Math.min(g.floor, ba); g.top = Math.max(g.top, bb); }   // élargissement seul (cache froid), jamais de resserrement
     g.toT = v => Math.max(0, Math.min(1000, Math.round(1000 * Math.log(Math.max(v, g.floor) / g.floor) / Math.log(g.top / g.floor))));
     g.toV = t => g.floor * Math.pow(g.top / g.floor, t / 1000);
     g.rmin = box.querySelector('#prmin'); g.rmax = box.querySelector('#prmax');
@@ -69,8 +72,8 @@ function wirePriceRange(app, F, onSearch){
 function setPriceBounds(mn, mx){
   const g = activeGauge; if(!g) return;
   if(!(mx > 0) || !(mn >= 0) || mn >= mx) return;
-  g.floor = Math.max(0.01, mn);
-  g.top = mx;
+  g.floor = Math.min(g.fullFloor || 0.01, Math.max(0.01, mn));   // jamais sous la plage complète : poignées toujours remises à fond
+  g.top = Math.max(g.fullTop || 1000, mx);
   g.rmin.value = g.F.pmin !== '' ? g.toT(+g.F.pmin) : 0;
   g.rmax.value = g.F.pmax !== '' ? g.toT(+g.F.pmax) : 1000;
   if(+g.rmin.value > +g.rmax.value) g.rmin.value = g.rmax.value;   // poignées jamais croisées
