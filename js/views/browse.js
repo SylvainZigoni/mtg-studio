@@ -4,7 +4,7 @@ import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entr
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
-import { openModal, closeModal } from '../ui.js';
+import { openModal, closeModal, priceRangeHTML, wirePriceRange } from '../ui.js';
 import { R, S } from '../core/registry.js';
 
 /* ============================================================
@@ -46,8 +46,7 @@ function advFilterBarHTML(withSet){
         <option value="">Coût : tous</option>
         ${[0,1,2,3,4,5,6,'7+'].map(v => `<option value="${v}" ${String(advF.cmc)===String(v)?'selected':''}>CMC ${v}${v==='7+'?'+':''}</option>`).join('')}
       </select>
-      <input type="number" id="admin" placeholder="prix min €" value="${esc(advF.pmin)}" min="0">
-      <input type="number" id="admax" placeholder="prix max €" value="${esc(advF.pmax)}" min="0">
+      ${priceRangeHTML()}
       ${withSet ? '<select id="adset"><option value="">Extension : toutes</option></select>' : ''}
       <select id="adsort" title="Trier les résultats">
         ${ADV_SORTS.map(([v,l]) => `<option value="${v}" ${advSort===v?'selected':''}>Tri : ${l}</option>`).join('')}
@@ -125,8 +124,7 @@ function wireAdvFilters(app){
   });
   document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
   app.querySelector('#adcmc').onchange = e => advF.cmc = e.target.value;
-  app.querySelector('#admin').onchange = e => advF.pmin = e.target.value;
-  app.querySelector('#admax').onchange = e => advF.pmax = e.target.value;
+  wirePriceRange(app, advF, () => { browsePage = 1; doSearch(app); });
   app.querySelector('#adartist').onkeydown = e => { if(e.key==='Enter') go(); };
   app.querySelector('#adsort').onchange = e => { advSort = e.target.value; browsePage = 1; doSearch(app); };   // re-requête : le tri Scryfall change l'ordre global des pages
   // liste des extensions dans le filtre (recherche avancée uniquement), triées par nom d'édition

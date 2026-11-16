@@ -147,6 +147,24 @@ export function apiSetvalues(req, res) {
   sendJson(res, 200, out);
 }
 
+/* bornes de prix (min/max) des cartes ayant une série dans prices.db — pour la jauge de filtre prix (cache 12h) */
+const priceRangeCache = { ts: 0, result: null };
+export function apiPricerange(req, res) {
+  if (!pricesAvailable()) {
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez price_seed.py (voir README).' });
+  }
+  const now = Date.now() / 1000;
+  if (priceRangeCache.result && now - priceRangeCache.ts < MARKET_TTL) return sendJson(res, 200, priceRangeCache.result);
+  const r = getPricesDb().prepare(
+    'SELECT MIN(COALESCE(last_norm, last_foil, 0)) AS mn, ' +
+    'MAX(MAX(COALESCE(last_norm, 0), COALESCE(last_foil, 0))) AS mx FROM series'
+  ).get();
+  const out = { ok: true, min: r.mn || 0, max: r.mx || 0 };
+  priceRangeCache.ts = now;
+  priceRangeCache.result = out;
+  sendJson(res, 200, out);
+}
+
 export function apiCollvalue(req, res) {
   if (!pricesAvailable()) {
     return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez price_seed.py (voir README).' });
