@@ -1,7 +1,7 @@
 import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
-import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
+import { sfFetch, sfPump, sfCardByName, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
@@ -67,21 +67,6 @@ function vCollection(app){
 
   app.innerHTML = `
   <div class="panel">
-    <h3 style="margin-bottom:10px">Ajouter des cartes</h3>
-    <div class="row">
-      <div class="suggbox">
-        <input type="text" id="cardsearch" placeholder="Nom de la carte (toutes langues : Chantage, Blitzschlag…)" autocomplete="off" style="width:100%">
-        <div class="suggestions" id="sugg" style="display:none"></div>
-      </div>
-      <input type="number" id="cardqty" value="1" min="1" max="99" style="width:80px" title="Quantité">
-      <select id="addlang" title="Langue de l'exemplaire ajouté (anglais par défaut)">${Object.entries(LANGS).map(([v,l])=>`<option value="${v}" ${v==='en'?'selected':''}>${l}</option>`).join('')}</select>
-      <select id="addcond" title="État de l'exemplaire ajouté (Near Mint par défaut)">${CONDS.map(([v,l])=>`<option value="${v}" ${v==='NM'?'selected':''}>${v} — ${l}</option>`).join('')}</select>
-      <button class="btn" id="addbtn">Ajouter</button>
-    </div>
-    <p class="hint" style="margin-top:8px">Saisissez en anglais, français, allemand, espagnol, italien ou portugais — l'affichage reste en anglais.
-    Collez une liste (« 4 Lightning Bolt », une carte par ligne) pour un import rapide. Cliquez sur une suggestion pour choisir l'édition, la langue (uniquement celles existant dans cette édition), l'état, le foil et les tags.</p>
-  </div>
-  <div class="panel">
     <div class="row" style="justify-content:space-between;margin-bottom:6px">
       <h3>Ma collection — ${list.length} groupes · ${totalQty} exemplaires</h3>
       <div class="row">
@@ -146,7 +131,7 @@ function vCollection(app){
 }
 
 function collTableHTML(list){
-  if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres. Collection vide ? Ajoutez des cartes ci-dessus.</p>`;
+  if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres. Collection vide ? Ajoutez des cartes depuis une tuile (recherche avancée, extensions…).</p>`;
   return `<table><thead><tr>
     <th style="width:26px"></th><th style="width:56px"></th><th>Carte</th><th style="width:120px">Édition</th>
     <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th>Tags</th><th style="width:30px"></th>
@@ -197,31 +182,6 @@ async function hydrateColl(list, app){
 }
 
 function bindCollection(app, ctx){
-  // ---- ajout de cartes (multilingue) ----
-  const input = app.querySelector('#cardsearch'), sugg = app.querySelector('#sugg');
-  let t = null, items = [];
-  input.oninput = () => {
-    clearTimeout(t); const q = input.value.trim();
-    if(q.length < 2){ sugg.style.display='none'; return; }
-    t = setTimeout(async () => {
-      items = await sfAutocomplete(q);
-      if(!items.length){ sugg.style.display='none'; return; }
-      sugg.innerHTML = items.slice(0,8).map((n,i)=>`<div data-i="${i}">${esc(n)} <span class="pill">cliquez pour choisir l'édition</span></div>`).join('');
-      sugg.style.display='block';
-      sugg.querySelectorAll('div').forEach(el => el.onclick = () => {
-        input.value = items[el.dataset.i]; sugg.style.display='none'; openPrintPicker(items[el.dataset.i]);
-      });
-    }, 280);
-  };
-  input.onkeydown = e => { if(e.key==='Enter'){ e.preventDefault(); app.querySelector('#addbtn').click(); } };
-  app.querySelector('#addbtn').onclick = () => {
-    const raw = input.value.trim(); if(!raw) return;
-    const lang = app.querySelector('#addlang').value, cond = app.querySelector('#addcond').value;
-    const lines = raw.split(/\n|;/).map(s=>s.trim()).filter(Boolean);
-    lines.forEach(l => { const m = l.match(/^(\d+)\s*x?\s+(.+)$/i);
-      addEntry(m ? {name:m[2], qty:+m[1], tags:[], lang, cond} : {name:l, qty:+app.querySelector('#cardqty').value||1, tags:[], lang, cond}); });
-    input.value=''; vCollection(app); hydrateColl(entries, app);
-  };
   app.querySelector('#viewbtn').onclick = () => { collView = collView==='list'?'grid':'list'; vCollection(app); };
 
   // ---- filtres ----
@@ -354,97 +314,6 @@ function bindCollection(app, ctx){
   };
 }
 
-/* modal : choix de l'édition (printing) lors de l'ajout d'une carte */
-async function openPrintPicker(name, preset){
-  preset = preset || {};
-  let prints = [];
-  try{ prints = await sfPrints(name); }catch(e){}
-  if(!prints.length){ addEntry({name, qty:1, tags:[]}); vCollection($('#app')); return; }
-  let sel = 0;
-  if(preset.set){
-    const iCn = prints.findIndex(p => p.set === preset.set && (!preset.cn || String(p.cn) === String(preset.cn)));
-    sel = iCn >= 0 ? iCn : Math.max(0, prints.findIndex(p => p.set === preset.set));
-  }
-  const html = `
-  <button class="close" id="mclose">✕</button>
-  <h3 style="margin-bottom:4px">${esc(prints[0].name)}</h3>
-  <p class="hint">Choisissez l'édition que vous possédez — le visuel, le symbole et le prix suivront cette édition.
-  La langue proposée est limitée aux langues existant pour cette carte dans l'édition choisie (anglais par défaut) ; l'état est Near Mint par défaut.</p>
-  <div id="ppgrid" class="collgrid" style="margin:10px 0">
-    ${prints.map((p,i) => `<div class="colltile" data-i="${i}" style="cursor:pointer;${i===sel?'outline:2px solid var(--accent)':''}">
-      ${p.image?`<img src="${p.image}" loading="lazy" style="width:100%;aspect-ratio:488/680;object-fit:cover;background:#000">`:''}
-      <div class="info"><b>${esc(p.set_name)}</b> <span class="pill">${p.set.toUpperCase()} · ${esc(p.cn)} · ${p.released_at?.slice(0,4)}</span>
-      <div class="price">${eur(p.eur)}${p.eur_foil?` / ✦ ${eur(p.eur_foil)}`:''}</div></div>
-    </div>`).join('')}
-  </div>
-  <div class="row" style="flex-wrap:wrap;gap:10px">
-    <label class="row" id="ppfoilwrap" style="gap:6px"><input type="checkbox" id="ppfoil"> Foil</label>
-    <label class="row" style="gap:6px"><input type="checkbox" id="ppsigned"> Signée</label>
-    <select id="ppcond">
-      ${CONDS.map(([v,l]) => `<option value="${v}" ${v==='NM'?'selected':''}>${l}</option>`).join('')}
-    </select>
-    <label class="row" style="gap:6px"><b>Langue :</b>
-      <select id="pplang" title="Langues disponibles pour cette carte dans l'édition sélectionnée"></select>
-    </label>
-    <input type="number" id="ppqty" value="1" min="1" max="99" style="width:80px">
-    <select id="pptags" multiple size="${Math.min(6, Math.max(3, tags.length))}" style="min-width:180px">
-      ${tags.map(t=>`<option>${esc(t)}</option>`).join('')}
-    </select>
-    <button class="btn ghost" id="ppnewtag">+ tag</button>
-    <button class="btn" id="ppok">Ajouter à la collection</button>
-  </div>`;
-  openModal(html);
-  $('#mclose').onclick = closeModal;
-  $('#ppfoil').checked = !!preset.foil;
-  if(preset.cond) $('#ppcond').value = preset.cond;
-  // langues proposées : uniquement celles existant pour cette carte DANS l'édition
-  // sélectionnée (champ "lang" de chaque printing renvoyé par l'API Scryfall)
-  const langSel = $('#pplang');
-  let langVal = preset.lang || 'en';
-  let setPool = prints;   // printings de l'édition sélectionnée (requête set:<code> fiable)
-  async function refreshForSel(){
-    const p = prints[sel];
-    try{ const sp = await sfSetPrints(prints[0].name, p.set); if(sp.length) setPool = sp; }catch(e){}
-    if(!setPool.some(x => x.set === p.set)) setPool = prints.filter(x => x.set === p.set);
-    let list = [...new Set(setPool.map(x => x.lang).filter(Boolean))];
-    if(!list.length) list = [...new Set(prints.map(x => x.lang).filter(Boolean))];
-    if(!list.length) list.push('en');
-    langSel.innerHTML = list.map(lg => `<option value="${lg}">${LANGS[lg]||lg}</option>`).join('');
-    langSel.value = list.includes(langVal) ? langVal : (list.includes('en') ? 'en' : (p.lang || list[0]));
-    langVal = langSel.value;
-    // foil uniquement si l'impression sélectionnée existe en foil (finishes Scryfall)
-    const ok = (p.finishes||[]).includes('foil') || !!p.eur_foil;
-    const cb = $('#ppfoil');
-    cb.disabled = !ok; if(!ok) cb.checked = false;
-    $('#ppfoilwrap').style.opacity = ok ? 1 : .45;
-    $('#ppfoilwrap').title = ok ? 'Cette impression existe en foil' : 'Cette impression n\'existe pas en foil';
-  }
-  async function selectTile(i){
-    sel = i;
-    $('#ppgrid').querySelectorAll('.colltile').forEach(x => x.style.outline = '');
-    const tl = $('#ppgrid').querySelector(`.colltile[data-i="${i}"]`);
-    if(tl) tl.style.outline = '2px solid var(--accent)';
-    await refreshForSel();
-  }
-  $('#ppgrid').querySelectorAll('.colltile').forEach(tl => tl.onclick = () => selectTile(+tl.dataset.i));
-  refreshForSel();
-  langSel.onchange = () => {
-    langVal = langSel.value;
-    // si cette édition existe dans la langue choisie, on sélectionne ce printing (n° collecteur adapté)
-    const alt = prints.findIndex(p => p.set === prints[sel].set && p.lang === langVal);
-    if(alt >= 0 && alt !== sel) selectTile(alt);
-  };
-  $('#ppnewtag').onclick = () => { const n = prompt('Nom du tag ?');
-    if(n){ setTags([...new Set([...tags, n])]); saveTags();
-      openPrintPicker(name, {set:prints[sel].set, foil:$('#ppfoil').checked, cond:$('#ppcond').value, lang:langVal}); } };
-  $('#ppok').onclick = () => {
-    const p = prints[sel];
-    const chosen = [...$('#pptags').selectedOptions].map(o=>o.value);
-    addEntry({name:prints[0].name, set:p.set, cn:p.cn, foil:$('#ppfoil').checked && !$('#ppfoil').disabled, qty:+$('#ppqty').value||1,
-      cond:$('#ppcond').value, lang:langVal, signed:$('#ppsigned').checked, tags:chosen});
-    closeModal(); vCollection($('#app')); hydrateColl(entries, $('#app'));
-  };
-}
 /* modal : modifier la langue et/ou l'état d'un groupe existant de la collection */
 async function openEntryEditor(e){
   let prints = getPrintCache()[e.norm] || [];
@@ -583,6 +452,6 @@ function refreshTileOwned(name, set){
   });
 }
 R.views.collection = vCollection; R.vCollection = vCollection;
-R.openPrintPicker = openPrintPicker; R.openAddPopup = openAddPopup; R.openEntryEditor = openEntryEditor;
+R.openAddPopup = openAddPopup; R.openEntryEditor = openEntryEditor;
 
-export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openPrintPicker, openEntryEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, TYPES_LIST };
+export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, TYPES_LIST };
