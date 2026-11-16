@@ -95,7 +95,6 @@ function vCollection(app){
         <button class="btn ghost" id="viewbtn">${collView==='list'?'▦ Vue vignettes':'☰ Vue liste'}</button>
         <button class="btn ghost" id="expbtn">Exporter</button>
         <button class="btn ghost" id="impbtn">Importer</button>
-        <button class="btn danger" id="clearbtn">Vider</button>
         <input type="file" id="impfile" accept=".json" style="display:none">
       </div>
     </div>
@@ -384,9 +383,6 @@ function bindCollection(app, ctx){
       alert('Import réussi'); vCollection(app);
     }catch(err){ alert('Fichier invalide'); } };
     rd.readAsText(e.target.files[0]);
-  };
-  app.querySelector('#clearbtn').onclick = () => {
-    if(confirm('Vider toute la collection ?')){ entries=[]; saveColl(); collChecked=new Set(); vCollection(app); }
   };
 }
 
