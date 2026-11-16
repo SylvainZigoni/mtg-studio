@@ -27,6 +27,15 @@ const COLL_SORTS = [
   ['cmc-asc','Coût de mana ↑'], ['cmc-desc','Coût de mana ↓'],
 ];
 
+const RAR_COLORS = { mythic:'#C5C5C5', rare:'#CCB473', uncommon:'#FFFFFF', common:'#2B2728' };
+function rarityDotHTML(p){
+  const rar = (p && p.rarity) || '';
+  const isToken = rar === 'token' || /token/i.test((p && p.type_line) || '');
+  if(isToken) return `<span class="rarity-dot rarity-token" title="Token">T</span>`;
+  if(RAR_COLORS[rar]) return `<span class="rarity-dot" style="background:${RAR_COLORS[rar]}" title="${esc(rar)}"></span>`;
+  return '';
+}
+
 function collFilterAndSort(){
   let list = entries.slice();
   const F = collF;
@@ -182,22 +191,23 @@ function vCollection(app){
 
 function collTableHTML(list){
   if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres. Collection vide ? Ajoutez des cartes depuis une tuile (recherche avancée, extensions…).</p>`;
-  return `<table><thead><tr>
-    <th style="width:26px"></th><th style="width:90px"></th><th>Carte</th><th style="width:120px">Édition</th>
-    <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th style="width:90px">Valeur</th><th>Tags</th><th style="width:30px"></th>
+  return `<table class="coll-list"><thead><tr>
+    <th style="width:26px"></th><th style="width:90px"></th><th>Carte</th><th style="width:100px">Édition</th>
+    <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th style="width:90px">Valeur</th><th style="width:150px">Tags</th><th style="width:30px"></th>
   </tr></thead><tbody id="collbody">
   ${list.map(e => {
     const p = entryPrintSync(e);
     const pr = p ? entryPrice(e, p) : null;
+    const rdot = rarityDotHTML(p);
     return `<tr class="entryrow" data-id="${e.id}">
       <td><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></td>
       <td>${p?.image ? `<img class="collthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" alt="">` : '<span class="hint">…</span>'}</td>
-      <td><span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span>${e.foil?' <span class="foil-badge" title="Foil">FOIL</span>':''}${e.signed?' <span class="pill" title="Signée">✍</span>':''}<span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${p?.reserved?' <span class="rl-badge" title="Reserved List">RL</span>':''}</td>
+      <td><div class="cellname">${rdot}<span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span></div><div class="pillrow">${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic"></i></span>':''}<span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${p?.reserved?'<span class="rl-badge" title="Reserved List">RL</span>':''}</div></td>
       <td class="hint">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> <span class="pill">${p.released_at?.slice(0,4)||''}</span>` : '…'}</td>
       <td><div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div></td>
       <td class="p">${pr!=null?eur(pr):'…'}</td>
       <td class="p" style="font-weight:600">${pr!=null?eur(pr*e.qty):'…'}</td>
-      <td>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)} <span class="x" data-xtag="${esc(t)}" data-xid="${e.id}">✕</span></span>`).join('')||'<span class="hint">—</span>'}
+      <td style="max-width:150px">${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)} <span class="x" data-xtag="${esc(t)}" data-xid="${e.id}">✕</span></span>`).join('')||'<span class="hint">—</span>'}
         <button class="btn ghost" data-addtagid="${e.id}" style="padding:0 6px;font-size:12px">+</button></td>
       <td><span class="editic" data-edite="${e.id}" title="Modifier (édition, langue, état, foil, signée, tags)" style="margin-right:14px;margin-bottom:14px"></span><span class="trash" title="Retirer tout ce groupe de la collection"></span></td>
     </tr>`;}).join('')}
@@ -207,14 +217,15 @@ function collGridHTML(list){
   if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres.</p>`;
   return `<div class="collgrid">${list.map(e => {
     const p = entryPrintSync(e);
+    const rdot = rarityDotHTML(p);
     return `<div class="colltile" data-id="${e.id}">
       <span class="qtyb">×${e.qty}${e.foil?' ✦':''}</span>
       <label class="chkb"><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></label>
       ${p?.image ? `<img class="gridthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" loading="lazy" alt="">` : '<div style="padding:20px" class="hint">chargement…</div>'}
       <div class="info">
-        <div class="name cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</div>
+        <div class="name cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${rdot}${esc(e.name)}</div>
         <div class="pill">${p ? p.set?.toUpperCase() : ''} ${p && entryPrice(e,p)!=null ? eur(entryPrice(e,p)) : ''}</div>
-        <div><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${e.signed?'<span class="pill">✍</span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
+        <div><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
         <div>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)}</span>`).join('')}</div>
         <div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div>
       </div>
