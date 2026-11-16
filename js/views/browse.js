@@ -252,7 +252,8 @@ async function loadSets(app){
       box.querySelectorAll('[data-calc]').forEach(b => b.onclick = async e => {
         e.stopPropagation();
         b.disabled = true; b.textContent = 'calcul…';
-        await computeSetValue(b.dataset.calc);
+        try{ await fetchAllSetValues(); }                      // instantané via prices.db (1 requête)
+        catch(err){ await computeSetValue(b.dataset.calc); }    // repli Scryfall si prices.db absent
         vBrowse(app);
       });
     };
@@ -262,17 +263,26 @@ async function loadSets(app){
     // bouton "Tout calculer" : valeur totale de toutes les extensions (cache 30 jours, calcul à la demande)
     const calcAll = app.querySelector('#calcAll');
     if(calcAll) calcAll.onclick = async () => {
-      if(!confirm(`Calculer la valeur totale des ${sets.length} extensions ?\nLes extensions déjà en cache (30 jours) sont ignorées ; les autres paginent l'API Scryfall (plusieurs minutes possibles).`)) return;
       calcAll.disabled = true;
-      let i = 0;
-      for(const s of sets){
-        i++;
-        calcAll.textContent = `💰 calcul… ${i}/${sets.length}`;
-        try{ await computeSetValue(s.code); }catch(e){ /* on continue */ }
+      try{
+        calcAll.textContent = '💰 chargement…';
+        await fetchAllSetValues();   // 1 seule requête serveur : toutes les extensions d'un coup (prices.db)
+        renderList(setFilterVal);
+      }catch(err){
+        // repli lent : set par set via l'API Scryfall (file série ~9 req/s)
+        if(!confirm(`prices.db indisponible : calculer via Scryfall les ${sets.length} extensions une par une ?\nLent : plusieurs minutes.`)){
+          calcAll.disabled = false; calcAll.textContent = '💰 Tout calculer'; return;
+        }
+        let i = 0;
+        for(const s of sets){
+          i++;
+          calcAll.textContent = `💰 calcul… ${i}/${sets.length}`;
+          try{ await computeSetValue(s.code); }catch(e){ /* on continue */ }
+        }
+        renderList(setFilterVal);
       }
       calcAll.disabled = false;
       calcAll.textContent = '💰 Tout calculer';
-      renderList(setFilterVal);
     };
     // hydrate les entrées sans édition connue (pour compléter owned[])
     const unknown = entries.filter(e => !e.set && !entryPrintSync(e));
@@ -297,6 +307,21 @@ async function computeSetValue(code){
   cache[code] = {v: total, date: Date.now()};
   store.set('mtg_setval', cache);
   return total;
+}
+/* Valeurs totales de TOUTES les extensions en UNE requête serveur (/api/setvalues, depuis prices.db).
+   Résultat fusionné dans le cache local 30 jours. Lève une erreur si prices.db est absent (repli Scryfall). */
+let setValsAll = null;
+async function fetchAllSetValues(){
+  if(setValsAll) return setValsAll;
+  const r = await fetch('/api/setvalues');
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  setValsAll = j.values || {};
+  const cache = getSetValCache();
+  const now = Date.now();
+  for(const [code, v] of Object.entries(setValsAll)) cache[code] = { v, date: now };
+  store.set('mtg_setval', cache);
+  return setValsAll;
 }
 async function vSetDetail(app){
   app.innerHTML = `<div class="panel">

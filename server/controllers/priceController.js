@@ -126,6 +126,27 @@ export function apiMarket(req, res) {
 }
 
 /* Valorisation de la collection : maintenant et aux fenêtres passées */
+/* Valeur totale de CHAQUE extension en une seule requête SQL depuis prices.db (cache 12h).
+   Équivalent à la somme des prix Scryfall par set, mais instantané : pas d'appel API externe. */
+const setValsCache = { ts: 0, result: null };
+export function apiSetvalues(req, res) {
+  if (!pricesAvailable()) {
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez price_seed.py (voir README).' });
+  }
+  const now = Date.now() / 1000;
+  if (setValsCache.result && now - setValsCache.ts < MARKET_TTL) return sendJson(res, 200, setValsCache.result);
+  const rows = getPricesDb().prepare(
+    'SELECT c."set" AS code, SUM(COALESCE(s.last_norm, s.last_foil, 0)) AS v ' +
+    'FROM cards c JOIN series s ON s.uuid = c.uuid GROUP BY c."set"'
+  ).all();
+  const values = {};
+  for (const r of rows) if (r.code) values[r.code] = round2(r.v);
+  const out = { ok: true, n: Object.keys(values).length, values };
+  setValsCache.ts = now;
+  setValsCache.result = out;
+  sendJson(res, 200, out);
+}
+
 export function apiCollvalue(req, res) {
   if (!pricesAvailable()) {
     return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez price_seed.py (voir README).' });
