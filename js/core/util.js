@@ -10,7 +10,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const norm = s => s.toLowerCase().replace(/\s+/g,' ').replace(/[^a-z0-9 ]/g,'').replace(/ \/\/.*/,'').trim();
-const eur = v => v==null ? '—' : parseFloat(v).toFixed(2).replace('.',',') + ' €';
+const eur = v => v==null ? '—' : parseFloat(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ').replace('.', ',') + ' €';
 const fmtName = f => FMT_NAMES[f] || f;
 
 const CONDS = [['MT','Mint'],['NM','Near Mint'],['EX','Excellent'],['GD','Good'],['LP','Light Played'],['PL','Played'],['PO','Poor']];
