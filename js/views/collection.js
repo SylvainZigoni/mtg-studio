@@ -93,7 +93,10 @@ function collFilterAndSort(){
 
 function vCollection(app){
   const {list, unknown, needMeta} = collFilterAndSort();
-  const totalQty = list.reduce((a,e) => a + e.qty, 0);
+  // stats globales de la collection (hors filtres) : exemplaires, cartes différentes, valeur totale
+  const gQty = entries.reduce((a,e) => a + e.qty, 0);
+  const gDiff = new Set(entries.map(e => e.norm)).size;
+  const gVal = entries.reduce((a,e) => { const pr = entryPrice(e, entryPrintSync(e)); return a + (pr!=null ? pr*e.qty : 0); }, 0);
   const checked = list.filter(e => collChecked.has(e.id));
   const tagCounts = {};
   entries.forEach(e => (e.tags||[]).forEach(t => tagCounts[t] = (tagCounts[t]||0) + e.qty));
@@ -101,7 +104,7 @@ function vCollection(app){
   app.innerHTML = `
   <div class="panel">
     <div class="row" style="justify-content:space-between;margin-bottom:6px">
-      <h3>Ma collection — ${list.length} groupes · ${totalQty} exemplaires</h3>
+      <h3>Ma collection — ${gQty} exemplaires · ${gDiff} cartes différentes · ${eur(gVal)}${list.length!==entries.length?` · ${list.length}/${entries.length} groupes affichés`:''}</h3>
       <div class="row">
         <button class="btn ghost" id="viewbtn">${collView==='list'?'▦ Vue vignettes':'☰ Vue liste'}</button>
         <button class="btn ghost" id="expbtn">Exporter</button>
