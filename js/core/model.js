@@ -98,4 +98,11 @@ export function setTags(v){ tags = v; }
 export function setMatches(v){ matches = v; }
 export function setMyDecks(v){ myDecks = v; }
 
-export { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks };
+/* index possédé précalculé : "norm|set" -> quantité (toutes langues/états/n° confondus).
+   Évite de reparcourir `entries` pour chaque tuile (badge ×N, filtre collection, tri valeur). */
+function ownedQtyMap(){
+  const m = new Map();
+  entries.forEach(e => { const k = e.norm+'|'+(e.set||''); m.set(k, (m.get(k)||0) + e.qty); });
+  return m;
+}
+export { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap };

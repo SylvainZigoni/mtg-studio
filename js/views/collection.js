@@ -1,10 +1,10 @@
 import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
-import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
+import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
-import { openModal, closeModal } from '../ui.js';
+import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
 import { R, S } from '../core/registry.js';
 
 /* ============================================================
@@ -107,8 +107,7 @@ function vCollection(app){
         <option value="">Coût : tous</option>
         ${[0,1,2,3,4,5,6,'7+'].map(v => `<option value="${v}" ${String(collF.cmc)===String(v)?'selected':''}>CMC ${v}${v==='7+'?'+':''}</option>`).join('')}
       </select>
-      <input type="number" id="fpmin" placeholder="prix min €" value="${esc(collF.pmin)}" min="0">
-      <input type="number" id="fpmax" placeholder="prix max €" value="${esc(collF.pmax)}" min="0">
+      ${priceRangeHTML()}
       <select id="fset">
         <option value="">Extension : toutes</option>
         ${setsOwned.map(s => `<option value="${s}" ${collF.set===s?'selected':''}>${s.toUpperCase()}</option>`).join('')}
@@ -240,8 +239,11 @@ function bindCollection(app, ctx){
   });
   document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
   app.querySelector('#fcmc').onchange = e => { collF.cmc = e.target.value; upd(); };
-  app.querySelector('#fpmin').onchange = e => { collF.pmin = e.target.value; upd(); };
-  app.querySelector('#fpmax').onchange = e => { collF.pmax = e.target.value; upd(); };
+  wirePriceRange(app, collF, upd);
+  { let mn = null, mx = null;   // resserre la jauge sur les prix de la liste filtrée
+    for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
+      if(pr != null){ if(mn==null || pr<mn) mn=pr; if(mx==null || pr>mx) mx=pr; } }
+    if(mn != null && mx != null) setPriceBounds(mn, mx); }
   app.querySelector('#fset').onchange = e => { collF.set = e.target.value; upd(); };
   app.querySelector('#fsort').onchange = e => { collSort = e.target.value; vCollection(app); };
   app.querySelector('#fsortdir').onclick = () => { collDir *= -1; vCollection(app); };
@@ -570,9 +572,11 @@ async function openAddPopup(name, preset){
 }
 /* met à jour le badge ×N des tuiles d'une carte+édition (toutes langues/états confondus) */
 function refreshTileOwned(name, set){
-  const q = ownedQtyMap().get(norm(name)+'|'+(set||'')) || 0;
+  const s = set || '';
+  const k = norm(name);
+  const q = ownedQtyMap().get(k+'|'+s) || 0;
   document.querySelectorAll('.cardtile').forEach(tl => {
-    if(tl.dataset.set !== set || norm(tl.dataset.name) !== k) return;
+    if(tl.dataset.set !== s || norm(tl.dataset.name) !== k) return;
     let b = tl.querySelector('.qtyb');
     if(q>0){ if(!b){ b = document.createElement('span'); b.className='qtyb'; tl.prepend(b); } b.textContent = '×'+q; }
     else if(b) b.remove();

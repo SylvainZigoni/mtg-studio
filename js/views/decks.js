@@ -371,6 +371,9 @@ function vArchetypeAnalysis(app){
   app.querySelectorAll('.cinfo').forEach(td => td.onclick = () => R.showCardInfo(td.textContent));
 }
 
-R.views.decks = vDecks; R.views.playable = vPlayable; R.views.archetypes = vArchetypes; R.showDeck = showDeck;
+R.views.decks = a => { deckEvent = null; vDecks(a); };   // le burger remet la liste (reset de l'état détail)
+R.views.playable = vPlayable;
+R.views.archetypes = a => { ar.arch = null; vArchetypes(a); };
+R.showDeck = showDeck;
 
 export { vDecks, vEventDetail, analyzeList, gatherMeta, metaOf, typeBucket, groupCards, manaCurve, costColors, landProduces, deckLegalities, deckViewHTML, drawDeckCharts, bindDeckView, showDeck, hydrateImage, deckTagDistribution, vPlayable, runPlayable, vArchetypes, vArchetypeAnalysis, deckFmt, dvGroup, TYPE_ORDER, LEGAL_FMTS, pf, ar, archSide };
