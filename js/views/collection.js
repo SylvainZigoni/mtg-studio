@@ -190,7 +190,7 @@ function collTableHTML(list){
       <td class="p">${pr!=null?eur(pr):'…'}</td>
       <td>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)} <span class="x" data-xtag="${esc(t)}" data-xid="${e.id}">✕</span></span>`).join('')||'<span class="hint">—</span>'}
         <button class="btn ghost" data-addtagid="${e.id}" style="padding:0 6px;font-size:12px">+</button></td>
-      <td><span class="editic" data-edite="${e.id}" title="Modifier (édition, langue, état, foil, signée, tags)" style="margin-right:14px"></span><span class="trash" title="Retirer tout ce groupe de la collection"></span></td>
+      <td><span class="editic" data-edite="${e.id}" title="Modifier (édition, langue, état, foil, signée, tags)" style="margin-right:14px;margin-bottom:14px"></span><span class="trash" title="Retirer tout ce groupe de la collection"></span></td>
     </tr>`;}).join('')}
   </tbody></table>`;
 }
