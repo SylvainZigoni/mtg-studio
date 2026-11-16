@@ -165,7 +165,7 @@ function vCollection(app){
 function collTableHTML(list){
   if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres. Collection vide ? Ajoutez des cartes depuis une tuile (recherche avancée, extensions…).</p>`;
   return `<table><thead><tr>
-    <th style="width:26px"></th><th style="width:64px"></th><th>Carte</th><th style="width:120px">Édition</th>
+    <th style="width:26px"></th><th style="width:72px"></th><th>Carte</th><th style="width:120px">Édition</th>
     <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th>Tags</th><th style="width:30px"></th>
   </tr></thead><tbody id="collbody">
   ${list.map(e => {
@@ -429,6 +429,11 @@ async function openEntryEditor(e){
     </label>
     <label class="row" id="ec-foilwrap" style="gap:6px"><input type="checkbox" id="ec-foil" ${e.foil?'checked':''}> Foil</label>
     <label class="row" style="gap:6px"><input type="checkbox" id="ec-signed" ${e.signed?'checked':''}> Signée</label>
+    <label class="row" style="gap:6px"><b>Tags :</b>
+      <select id="ec-tags" multiple size="${Math.min(6, Math.max(3, tags.length))}" style="min-width:160px">
+        ${tags.map(t=>`<option ${((e.tags||[]).includes(t))?'selected':''}>${esc(t)}</option>`).join('')}
+      </select></label>
+    <button class="btn ghost" id="ec-newtag">+ tag</button>
     <button class="btn" id="ec-ok">Enregistrer</button>
   </div>`);
   $('#mclose').onclick = closeModal;
@@ -446,11 +451,15 @@ async function openEntryEditor(e){
   };
   $('#ec-set').onchange = ev => { curSet = ev.target.value; refreshLangs(); };
   langSel.onchange = () => { langVal = langSel.value; refreshLangs(); };
+  $('#ec-newtag').onclick = () => { const n = prompt('Nom du tag ?');
+    if(n && n.trim()){ const t = n.trim(); setTags([...new Set([...tags, t])]); saveTags();
+      $('#ec-tags').innerHTML += `<option selected>${esc(t)}</option>`; } };
   refreshLangs();
   $('#ec-ok').onclick = () => {
     e.set = curSet; e.lang = langVal; e.cond = $('#ec-cond').value;
     e.foil = !$('#ec-foil').disabled && $('#ec-foil').checked;
     e.signed = $('#ec-signed').checked;
+    e.tags = [...$('#ec-tags').selectedOptions].map(o=>o.value);
     const alt = prints.find(p => p.set === curSet && p.lang === langVal);
     if(alt) e.cn = alt.cn;   // le n° collecteur suit l'édition/langue choisie
     // fusion avec un groupe identique s'il existe (même édition/foil/signé/état/langue/tags)
