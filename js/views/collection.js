@@ -224,10 +224,12 @@ function collGridHTML(list){
       ${p?.image ? `<img class="gridthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" loading="lazy" alt="">` : '<div style="padding:20px" class="hint">chargement…</div>'}
       <div class="info">
         <div class="name cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${rdot}${esc(e.name)}</div>
-        <div class="pill">${p ? p.set?.toUpperCase() : ''} ${p && entryPrice(e,p)!=null ? eur(entryPrice(e,p)) : ''}</div>
-        <div><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
-        <div>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)}</span>`).join('')}</div>
-        <div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div>
+        <div class="pillrow"><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
+        <div class="tilerow">
+          <div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div>
+          <span class="editic" data-edite="${e.id}" title="Modifier (édition, langue, état, foil, signée, tags)"></span>
+          <span class="trash" title="Retirer tout ce groupe de la collection"></span>
+        </div>
       </div>
     </div>`;}).join('')}</div>`;
 }
