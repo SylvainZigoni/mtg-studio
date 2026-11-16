@@ -135,6 +135,7 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .rarity-token{background:#000;border-color:#000;color:#fff;font-weight:700;font-size:9px;line-height:10px;text-align:center}
 .rl-badge{display:inline-flex;align-items:center;height:20px;box-sizing:border-box}
 .coll-list th{text-align:center}
+.coll-list td:nth-child(5),.coll-list td:nth-child(6),.coll-list td:nth-child(7){text-align:center}
 .coll-list{table-layout:fixed}
 .coll-list .cellname{overflow-wrap:anywhere}
 /* pastille d'état : couleur fixe selon la condition, identique dans tous les thèmes */
