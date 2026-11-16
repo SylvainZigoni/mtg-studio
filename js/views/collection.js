@@ -1,7 +1,7 @@
 import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
-import { sfFetch, sfPump, sfCardByName, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
+import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
@@ -11,57 +11,79 @@ import { R, S } from '../core/registry.js';
    VUE COLLECTION
    ============================================================ */
 /* état de la vue collection */
-let collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:''};
-let collSort = 'name', collDir = 1, collView = 'list', collChecked = new Set(), collPending = false;
+let collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false};
+let collSort = '', collView = 'list', collChecked = new Set(), collPending = false;
+function setCollSort(v){ collSort = v; }
+
+/* mêmes tris que la recherche avancée (cf. ADV_SORTS dans browse.js), adaptés aux groupes de la collection */
+const COLL_SORTS = [
+  ['','Par défaut (nom A → Z)'],
+  ['name-asc','Nom A → Z'], ['name-desc','Nom Z → A'],
+  ['date-asc',"Date d'impression ↑"], ['date-desc',"Date d'impression ↓"],
+  ['set-asc',"Nom d'édition A → Z"], ['set-desc',"Nom d'édition Z → A"],
+  ['price-asc','Prix croissant'], ['price-desc','Prix décroissant'],
+  ['val-asc','Valeur dans la collection ↑'], ['val-desc','Valeur dans la collection ↓'],
+  ['type','Type de carte'],
+  ['cmc-asc','Coût de mana ↑'], ['cmc-desc','Coût de mana ↓'],
+];
 
 function collFilterAndSort(){
   let list = entries.slice();
   const F = collF;
   const q = norm(F.q);
-  if(q) list = list.filter(e => norm(e.name).includes(q));
-  if(F.tags.length) list = list.filter(e => F.tags.every(t => (e.tags||[]).includes(t)));
-  if(F.set) list = list.filter(e => e.set === F.set);
+  const base = collSort.replace(/-(asc|desc)$/, '');
+  const dir = /-desc$/.test(collSort) ? -1 : 1;
+
   // filtres nécessitant les métadonnées (print data) — inconnu => à charger
   const needMeta = F.colors.length || F.types.length || F.cmc !== '' || F.pmin !== '' || F.pmax !== '' ||
-    ['cmc','price','date','type','color'].includes(collSort);
+    !!F.artist.trim() || F.reserved || ['cmc','price','date','type','set','val'].includes(base);
   const unknown = [];
+
   list = list.filter(e => {
-    if(!needMeta) return true;
     const p = entryPrintSync(e);
-    if(!p){ unknown.push(e); return false; }
+    if((needMeta || q) && !p) unknown.push(e);
+    // nom recherché dans TOUTES les langues : nom anglais + noms imprimés (printed_name) des éditions connues
+    if(q && !norm(e.name).includes(q)){
+      const pr = getPrintCache()[e.norm] || [];
+      if(!pr.some(x => x.printed_name && norm(x.printed_name).includes(q))) return false;
+    }
+    if(F.tags.length && !F.tags.every(t => (e.tags||[]).includes(t))) return false;
+    if(F.set && e.set !== F.set) return false;
+    if(!needMeta) return true;
+    if(!p) return false;
     if(F.colors.length && !F.colors.some(c => (p.colors||[]).includes(c))) return false;
     if(F.types.length && !F.types.some(t => (p.type_line||'').toLowerCase().includes(t.toLowerCase()))) return false;
     if(F.cmc !== ''){ const mv = p.mv ?? 0;
       if(F.cmc === '7+' ? mv < 7 : mv !== +F.cmc) return false; }
+    if(F.artist && !(p.artist||'').toLowerCase().includes(F.artist.trim().toLowerCase())) return false;
+    if(F.reserved && !p.reserved) return false;
     const pr = entryPrice(e, p);
     if(F.pmin !== '' && (pr == null || pr < +F.pmin)) return false;
     if(F.pmax !== '' && (pr == null || pr > +F.pmax)) return false;
     return true;
   });
   const val = e => entryPrice(e, entryPrintSync(e)) ?? -1;
-  const prType = e => (entryPrintSync(e)?.type_line || 'zzz');
-  const prColor = e => (entryPrintSync(e)?.colors || ['Z'])[0];
   list.sort((a,b) => {
     let r = 0;
-    switch(collSort){
+    switch(base){
       case 'name': r = norm(a.name).localeCompare(norm(b.name)); break;
-      case 'tag': r = ((a.tags||[])[0]||'zz').localeCompare((b.tags||[])[0]||'zz'); break;
-      case 'type': r = prType(a).localeCompare(prType(b)); break;
-      case 'color': r = prColor(a).localeCompare(prColor(b)); break;
+      case 'type': r = (entryPrintSync(a)?.type_line || 'zzz').localeCompare(entryPrintSync(b)?.type_line || 'zzz'); break;
       case 'cmc': r = (entryPrintSync(a)?.mv ?? 99) - (entryPrintSync(b)?.mv ?? 99); break;
       case 'date': r = (entryPrintSync(a)?.released_at || '').localeCompare(entryPrintSync(b)?.released_at || ''); break;
+      case 'set': r = (entryPrintSync(a)?.set_name || '').localeCompare(entryPrintSync(b)?.set_name || ''); break;
       case 'price': r = val(a) - val(b); break;
+      case 'val': r = val(a) * a.qty - val(b) * b.qty; break;
     }
-    return r * collDir || norm(a.name).localeCompare(norm(b.name));
+    return r * dir || norm(a.name).localeCompare(norm(b.name));
   });
   return {list, unknown, needMeta};
 }
+
 
 function vCollection(app){
   const {list, unknown, needMeta} = collFilterAndSort();
   const totalQty = list.reduce((a,e) => a + e.qty, 0);
   const checked = list.filter(e => collChecked.has(e.id));
-  const setsOwned = [...new Set(entries.map(e => e.set).filter(Boolean))].sort();
   const tagCounts = {};
   entries.forEach(e => (e.tags||[]).forEach(t => tagCounts[t] = (tagCounts[t]||0) + e.qty));
 
@@ -79,7 +101,14 @@ function vCollection(app){
     </div>
 
     <div class="filterbar">
-      <input type="text" id="fq" placeholder="🔍 Rechercher dans la collection…" value="${esc(collF.q)}">
+      <div class="suggbox" style="flex:1;min-width:260px">
+        <input type="text" id="fq" placeholder="Nom de carte, toutes langues (Lord of Atlantis, Seigneur de l'Atlantide…)" autocomplete="off" value="${esc(collF.q)}" style="width:100%">
+        <div class="suggestions" id="fqsugg" style="display:none"></div>
+      </div>
+      <div class="suggbox" style="min-width:170px">
+        <input type="text" id="fartist" placeholder="Artiste, ex: Rebecca Guay" value="${esc(collF.artist)}" autocomplete="off" style="width:100%">
+        <div class="suggestions" id="fartistsugg" style="display:none"></div>
+      </div>
       <span class="colorpick" id="fpick-colors">
         ${['W','U','B','R','G'].map(c => `<span data-c="${c}" class="${collF.colors.includes(c)?'on':''}"
           style="color:${({W:'#f4e8a6',U:'#6db3f2',B:'#b5a6f4',R:'#f26a6a',G:'#7ec97e'})[c]}">${c}</span>`).join('')}
@@ -93,15 +122,13 @@ function vCollection(app){
         ${[0,1,2,3,4,5,6,'7+'].map(v => `<option value="${v}" ${String(collF.cmc)===String(v)?'selected':''}>CMC ${v}${v==='7+'?'+':''}</option>`).join('')}
       </select>
       ${priceRangeHTML()}
-      <select id="fset">
-        <option value="">Extension : toutes</option>
-        ${setsOwned.map(s => `<option value="${s}" ${collF.set===s?'selected':''}>${s.toUpperCase()}</option>`).join('')}
+      <select id="fset"><option value="">Extension : toutes</option>${collF.set?`<option value="${esc(collF.set)}" selected>${esc(collF.set.toUpperCase())}</option>`:''}</select>
+      <select id="fsort" title="Trier la collection">
+        ${COLL_SORTS.map(([v,l]) => `<option value="${v}" ${collSort===v?'selected':''}>Tri : ${l}</option>`).join('')}
       </select>
-      <select id="fsort">
-        ${[['name','nom (EN)'],['tag','tag'],['type','type'],['color','couleur'],['cmc','coût de mana'],['price','prix'],['date','date de parution']]
-          .map(([v,l]) => `<option value="${v}" ${collSort===v?'selected':''}>Tri : ${l}</option>`).join('')}
-      </select>
-      <button class="btn ghost" id="fsortdir">${collDir===1?'↑':'↓'}</button>
+      <label class="row" style="gap:6px" title="Ne garder que les cartes de la Reserved List">
+        <input type="checkbox" id="freserved" ${collF.reserved?'checked':''}> Reserved List
+      </label>
       <button class="btn ghost" id="freset">Réinitialiser</button>
     </div>
 
@@ -121,13 +148,13 @@ function vCollection(app){
       <button class="btn danger" id="bulkrm">Supprimer de la collection</button>
     </div>` : ''}
 
-    ${needMeta && unknown.length ? `<p class="hint" id="metawait">Chargement des métadonnées des cartes (${unknown.length})…</p>` : ''}
+    ${unknown.length ? `<p class="hint" id="metawait">Chargement des métadonnées des cartes (${unknown.length})…</p>` : ''}
     ${collView === 'grid' ? collGridHTML(list) : collTableHTML(list)}
 
     <p class="hint" style="margin-top:10px" id="collvalue">Valeur des cartes affichées : calcul…</p>
   </div>`;
   bindCollection(app, {list, unknown, needMeta});
-  hydrateColl(list, app);
+  hydrateColl(list, app, unknown);
 }
 
 function collTableHTML(list){
@@ -171,8 +198,8 @@ function collGridHTML(list){
 }
 
 /* hydratation progressive : prints manquants + prix + valeur affichée */
-async function hydrateColl(list, app){
-  const todo = list.filter(e => !getPrintCache()[e.norm]);
+async function hydrateColl(list, app, extra){
+  const todo = list.concat(extra || []).filter(e => !getPrintCache()[e.norm]);
   for(const e of todo){ try{ await sfPrints(e.name); }catch(err){} }
   if(todo.length){ if(S.view === 'collection') vCollection(app); return; }
   let sum = 0, known = 0;
@@ -187,7 +214,49 @@ function bindCollection(app, ctx){
   // ---- filtres ----
   const upd = () => { collChecked = new Set(); vCollection(app); };
   const fq = app.querySelector('#fq');
-  fq.oninput = () => { clearTimeout(fq._t); fq._t = setTimeout(() => { collF.q = fq.value; collChecked = new Set(); vCollection(app); }, 240); };
+  const fsugg = app.querySelector('#fqsugg');
+  let fitems = [];
+  const applyQ = () => { collF.q = fq.value; collChecked = new Set(); vCollection(app); };
+  fq.oninput = () => {
+    clearTimeout(fq._t); clearTimeout(fq._s);
+    const v = fq.value.trim();
+    if(v.length >= 2){
+      fq._s = setTimeout(async () => {   // autocomplétion multilingue (anglais puis FR/DE/ES/IT/PT)
+        try{ fitems = await sfAutocomplete(v); }catch(e){ fitems = []; }
+        if(!fitems.length){ fsugg.style.display='none'; return; }
+        fsugg.innerHTML = fitems.slice(0,8).map((n,i)=>`<div data-i="${i}">🃏 ${esc(n)}</div>`).join('');
+        fsugg.style.display='block';
+        fsugg.querySelectorAll('div').forEach(el => el.onmousedown = ev => {
+          ev.preventDefault(); fq.value = fitems[el.dataset.i]; fsugg.style.display='none'; applyQ();
+        });
+      }, 280);
+    } else fsugg.style.display='none';
+    fq._t = setTimeout(applyQ, 240);
+  };
+  fq.onkeydown = e => { if(e.key==='Enter'){ e.preventDefault(); fsugg.style.display='none'; applyQ(); } };
+  fq.addEventListener('blur', () => setTimeout(() => fsugg.style.display='none', 150));
+  // filtre artiste (autocomplétion catalogue Scryfall + application à la saisie)
+  const ainp = app.querySelector('#fartist'), asugg = app.querySelector('#fartistsugg');
+  ainp.oninput = () => {
+    collF.artist = ainp.value;
+    clearTimeout(ainp._t); clearTimeout(ainp._s);
+    const v = ainp.value.trim().toLowerCase();
+    if(v.length >= 2){
+      ainp._s = setTimeout(async () => {
+        const list = await sfArtists();
+        const hits = list.filter(a => a.toLowerCase().includes(v)).slice(0,10);
+        if(!hits.length){ asugg.style.display='none'; return; }
+        asugg.innerHTML = hits.map((a,i)=>`<div data-i="${i}">🎨 ${esc(a)}</div>`).join('');
+        asugg.style.display='block';
+        asugg.querySelectorAll('div').forEach(el => el.onmousedown = ev => {
+          ev.preventDefault(); ainp.value = hits[el.dataset.i]; collF.artist = ainp.value; asugg.style.display='none'; upd();
+        });
+      }, 250);
+    } else asugg.style.display='none';
+    ainp._t = setTimeout(upd, 400);
+  };
+  ainp.onkeydown = e => { if(e.key==='Enter'){ e.preventDefault(); asugg.style.display='none'; upd(); } };
+  ainp.addEventListener('blur', () => setTimeout(() => asugg.style.display='none', 150));
   app.querySelectorAll('#fpick-colors span').forEach(s => s.onclick = () => {
     s.classList.toggle('on');
     collF.colors = [...app.querySelectorAll('#fpick-colors span.on')].map(x => x.dataset.c); collChecked=new Set(); vCollection(app);
@@ -204,10 +273,17 @@ function bindCollection(app, ctx){
     for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
       if(pr != null){ if(mn==null || pr<mn) mn=pr; if(mx==null || pr>mx) mx=pr; } }
     if(mn != null && mx != null) setPriceBounds(mn, mx); }
+  { const sel = app.querySelector('#fset');   // toutes les extensions, comme en recherche avancée
+    sfSets().then(sets => {
+      const sorted = sets.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
+      sel.innerHTML = `<option value="">Extension : toutes</option>` +
+        sorted.map(s => `<option value="${s.code}" ${collF.set===s.code?'selected':''}>${esc(s.name)}</option>`).join('');
+    }).catch(()=>{});
+  }
   app.querySelector('#fset').onchange = e => { collF.set = e.target.value; upd(); };
   app.querySelector('#fsort').onchange = e => { collSort = e.target.value; vCollection(app); };
-  app.querySelector('#fsortdir').onclick = () => { collDir *= -1; vCollection(app); };
-  app.querySelector('#freset').onclick = () => { collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:''}; upd(); };
+  app.querySelector('#freserved').onchange = e => { collF.reserved = e.target.checked; upd(); };
+  app.querySelector('#freset').onclick = () => { collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false}; upd(); };
 
   // ---- chips de tags ----
   app.querySelectorAll('.binderchip[data-t]').forEach(ch => ch.onclick = e => {
@@ -454,4 +530,4 @@ function refreshTileOwned(name, set){
 R.views.collection = vCollection; R.vCollection = vCollection;
 R.openAddPopup = openAddPopup; R.openEntryEditor = openEntryEditor;
 
-export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, TYPES_LIST };
+export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, setCollSort, TYPES_LIST };
