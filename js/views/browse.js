@@ -22,15 +22,9 @@ function getSetValCache(){
   return setValCache;
 }
 
-function vBrowse(app){
-  if(browseSet) return vSetDetail(app);
-  app.innerHTML = `
-  <div class="panel">
-    ${browseMode==='sets' ? `<p class="hint" style="margin-bottom:10px">Suivi de complétion et de valorisation de vos extensions. Cliquez sur une extension pour parcourir ses cartes.
-      <input type="text" id="setfilter" placeholder="🔍 Filtrer les extensions…" style="margin-left:10px;min-width:220px;padding:6px 10px">
-      <button class="btn ghost" id="calcAll" style="margin-left:8px;padding:5px 10px" title="Calcule la valeur totale de chaque extension (cache 30 jours ; les extensions inconnues paginent l'API Scryfall)">💰 Tout calculer</button></p>
-      <div id="setlist"><p class="hint">Chargement des extensions…</p></div>`
-    : `
+/* barre de filtres commune : recherche avancée ET détail d'une extension */
+function advFilterBarHTML(withSet){
+  return `
     <div class="filterbar">
       <div class="suggbox" style="flex:1;min-width:260px">
         <input type="text" id="sfq" placeholder="Requête Scryfall libre (o:&quot;draw a card&quot; t:instant…) ou nom de carte en français/anglais (Foudre, Lightning Bolt…)" autocomplete="off" style="width:100%">
@@ -54,7 +48,7 @@ function vBrowse(app){
       </select>
       <input type="number" id="admin" placeholder="prix min €" value="${esc(advF.pmin)}" min="0">
       <input type="number" id="admax" placeholder="prix max €" value="${esc(advF.pmax)}" min="0">
-      <select id="adset"><option value="">Extension : toutes</option></select>
+      ${withSet ? '<select id="adset"><option value="">Extension : toutes</option></select>' : ''}
       <select id="adsort" title="Trier les résultats">
         ${ADV_SORTS.map(([v,l]) => `<option value="${v}" ${advSort===v?'selected':''}>Tri : ${l}</option>`).join('')}
       </select>
@@ -66,84 +60,99 @@ function vBrowse(app){
       </label>
       <button class="btn" id="gosearch">Rechercher</button>
       <button class="btn ghost" id="adreset">Réinitialiser</button>
-    </div>
-    <div id="searchres"></div>`}
+    </div>`;
+}
+/* branche la barre de filtres ; la recherche porte sur la vue courante
+   (set:browseSet si on est dans le détail d'une extension) */
+function wireAdvFilters(app){
+  const inp = app.querySelector('#sfq'); inp.value = browseQuery;
+  const go = () => { browseQuery = inp.value; browsePage=1; doSearch(app); };
+  inp.onkeydown = e => { if(e.key==='Enter') go(); };
+  app.querySelector('#gosearch').onclick = go;
+  // autocomplétion du nom de carte (multilingue : Foudre -> Lightning Bolt…) dans la barre de recherche
+  const sugg = app.querySelector('#sfqsugg');
+  let st = null, sitems = [];
+  inp.oninput = () => {
+    clearTimeout(st);
+    const q = inp.value.trim();
+    if(q.length < 2){ sugg.style.display='none'; return; }
+    st = setTimeout(async () => {
+      try{ sitems = await sfAutocomplete(q); }catch(e){ sitems = []; }
+      if(!sitems.length){ sugg.style.display='none'; return; }
+      sugg.innerHTML = sitems.slice(0,8).map((n,i)=>`<div data-i="${i}">🃏 ${esc(n)}</div>`).join('');
+      sugg.style.display='block';
+      sugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
+        e.preventDefault();
+        inp.value = sitems[el.dataset.i]; sugg.style.display='none'; go();
+      });
+    }, 280);
+  };
+  inp.addEventListener('blur', () => setTimeout(() => sugg.style.display='none', 150));
+  // autocomplétion de l'artiste (catalogue Scryfall mis en cache)
+  const ainp = app.querySelector('#adartist'), asugg = app.querySelector('#adsugg');
+  let at = null;
+  ainp.oninput = () => {
+    advF.artist = ainp.value;   // synchro du filtre artiste (a:"…") à la saisie
+    clearTimeout(at);
+    const q = ainp.value.trim().toLowerCase();
+    if(q.length < 2){ asugg.style.display='none'; return; }
+    at = setTimeout(async () => {
+      const list = await sfArtists();
+      const hits = list.filter(a => a.toLowerCase().includes(q)).slice(0,10);
+      if(!hits.length){ asugg.style.display='none'; return; }
+      asugg.innerHTML = hits.map((a,i)=>`<div data-i="${i}">🎨 ${esc(a)}</div>`).join('');
+      asugg.style.display='block';
+      asugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
+        e.preventDefault();
+        ainp.value = hits[el.dataset.i]; advF.artist = ainp.value;
+        asugg.style.display='none'; go();
+      });
+    }, 250);
+  };
+  ainp.addEventListener('blur', () => setTimeout(() => asugg.style.display='none', 150));
+  app.querySelector('#adreset').onclick = () => { advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, owned:false}; browsePage=1; vBrowse(app); };
+  app.querySelector('#adres').onchange = e => { advF.reserved = e.target.checked; };
+  app.querySelector('#adown').onchange = e => { advF.owned = e.target.checked; browsePage = 1; doSearch(app); };   // la clause change la requête -> re-recherche
+  app.querySelectorAll('#adpick-colors span').forEach(s => s.onclick = () => {
+    s.classList.toggle('on');
+    advF.colors = [...app.querySelectorAll('#adpick-colors span.on')].map(x => x.dataset.c);
+  });
+  const ms = app.querySelector('#adpick-types');
+  ms.querySelector('button').onclick = e => { e.stopPropagation(); ms.classList.toggle('open'); };
+  ms.querySelectorAll('.opts input').forEach(cb => cb.onchange = () => {
+    advF.types = [...ms.querySelectorAll('.opts input:checked')].map(x=>x.value);
+    ms.querySelector('button').textContent = `Type : ${advF.types.length||'tous'} ▾`;
+  });
+  document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
+  app.querySelector('#adcmc').onchange = e => advF.cmc = e.target.value;
+  app.querySelector('#admin').onchange = e => advF.pmin = e.target.value;
+  app.querySelector('#admax').onchange = e => advF.pmax = e.target.value;
+  app.querySelector('#adartist').onkeydown = e => { if(e.key==='Enter') go(); };
+  app.querySelector('#adsort').onchange = e => { advSort = e.target.value; browsePage = 1; doSearch(app); };   // re-requête : le tri Scryfall change l'ordre global des pages
+  // liste des extensions dans le filtre (recherche avancée uniquement), triées par nom d'édition
+  const sel = app.querySelector('#adset');
+  if(sel) sfSets().then(sets => {
+    const sorted = sets.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    sel.innerHTML = `<option value="">Extension : toutes</option>` + sorted.map(s =>
+      `<option value="${s.code}" ${advF.set===s.code?'selected':''}>${esc(s.name)}</option>`).join('');
+    sel.onchange = e => advF.set = e.target.value;
+  }).catch(()=>{});
+}
+
+function vBrowse(app){
+  if(browseSet) return vSetDetail(app);
+  app.innerHTML = `
+  <div class="panel">
+    ${browseMode==='sets' ? `<p class="hint" style="margin-bottom:10px">Suivi de complétion et de valorisation de vos extensions. Cliquez sur une extension pour parcourir ses cartes.
+      <input type="text" id="setfilter" placeholder="🔍 Filtrer les extensions…" style="margin-left:10px;min-width:220px;padding:6px 10px">
+      <button class="btn ghost" id="calcAll" style="margin-left:8px;padding:5px 10px" title="Calcule la valeur totale de chaque extension (cache 30 jours ; les extensions inconnues paginent l'API Scryfall)">💰 Tout calculer</button></p>
+      <div id="setlist"><p class="hint">Chargement des extensions…</p></div>`
+    : advFilterBarHTML(true) + `<div id="searchres"></div>`}
   </div>`;
   // plus d'onglets en haut : la navigation Par extension / Recherche avancée se fait via le menu burger
   if(browseMode==='sets') loadSets(app);
   else {
-    const inp = app.querySelector('#sfq'); inp.value = browseQuery;
-    const go = () => { browseQuery = inp.value; browsePage=1; doSearch(app); };
-    inp.onkeydown = e => { if(e.key==='Enter') go(); };
-    app.querySelector('#gosearch').onclick = go;
-    // autocomplétion du nom de carte (multilingue : Foudre -> Lightning Bolt…) dans la barre de recherche
-    const sugg = app.querySelector('#sfqsugg');
-    let st = null, sitems = [];
-    inp.oninput = () => {
-      clearTimeout(st);
-      const q = inp.value.trim();
-      if(q.length < 2){ sugg.style.display='none'; return; }
-      st = setTimeout(async () => {
-        try{ sitems = await sfAutocomplete(q); }catch(e){ sitems = []; }
-        if(!sitems.length){ sugg.style.display='none'; return; }
-        sugg.innerHTML = sitems.slice(0,8).map((n,i)=>`<div data-i="${i}">🃏 ${esc(n)}</div>`).join('');
-        sugg.style.display='block';
-        sugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
-          e.preventDefault();
-          inp.value = sitems[el.dataset.i]; sugg.style.display='none'; go();
-        });
-      }, 280);
-    };
-    inp.addEventListener('blur', () => setTimeout(() => sugg.style.display='none', 150));
-    // autocomplétion de l'artiste (catalogue Scryfall mis en cache)
-    const ainp = app.querySelector('#adartist'), asugg = app.querySelector('#adsugg');
-    let at = null;
-    ainp.oninput = () => {
-      advF.artist = ainp.value;   // synchro du filtre artiste (a:"…") à la saisie
-      clearTimeout(at);
-      const q = ainp.value.trim().toLowerCase();
-      if(q.length < 2){ asugg.style.display='none'; return; }
-      at = setTimeout(async () => {
-        const list = await sfArtists();
-        const hits = list.filter(a => a.toLowerCase().includes(q)).slice(0,10);
-        if(!hits.length){ asugg.style.display='none'; return; }
-        asugg.innerHTML = hits.map((a,i)=>`<div data-i="${i}">🎨 ${esc(a)}</div>`).join('');
-        asugg.style.display='block';
-        asugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
-          e.preventDefault();
-          ainp.value = hits[el.dataset.i]; advF.artist = ainp.value;
-          asugg.style.display='none'; go();
-        });
-      }, 250);
-    };
-    ainp.addEventListener('blur', () => setTimeout(() => asugg.style.display='none', 150));
-    app.querySelector('#adreset').onclick = () => { advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, owned:false}; vBrowse(app); };
-    app.querySelector('#adres').onchange = e => { advF.reserved = e.target.checked; };
-    app.querySelector('#adown').onchange = e => { advF.owned = e.target.checked; browsePage = 1; doSearch(app); };   // la clause change la requête -> re-recherche
-    app.querySelectorAll('#adpick-colors span').forEach(s => s.onclick = () => {
-      s.classList.toggle('on');
-      advF.colors = [...app.querySelectorAll('#adpick-colors span.on')].map(x => x.dataset.c);
-    });
-    const ms = app.querySelector('#adpick-types');
-    ms.querySelector('button').onclick = e => { e.stopPropagation(); ms.classList.toggle('open'); };
-    ms.querySelectorAll('.opts input').forEach(cb => cb.onchange = () => {
-      advF.types = [...ms.querySelectorAll('.opts input:checked')].map(x=>x.value);
-      ms.querySelector('button').textContent = `Type : ${advF.types.length||'tous'} ▾`;
-    });
-    document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
-    app.querySelector('#adcmc').onchange = e => advF.cmc = e.target.value;
-    app.querySelector('#admin').onchange = e => advF.pmin = e.target.value;
-    app.querySelector('#admax').onchange = e => advF.pmax = e.target.value;
-    app.querySelector('#adartist').onkeydown = e => { if(e.key==='Enter') go(); };
-    app.querySelector('#adsort').onchange = e => { advSort = e.target.value; browsePage = 1; doSearch(app); };   // re-requête : le tri Scryfall change l'ordre global des pages
-    // liste des extensions dans le filtre, triées par nom d'édition (ordre alphabétique)
-    sfSets().then(sets => {
-      const sel = app.querySelector('#adset'); if(!sel) return;
-      const sorted = sets.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
-      sel.innerHTML = `<option value="">Extension : toutes</option>` + sorted.map(s =>
-        `<option value="${s.code}" ${advF.set===s.code?'selected':''}>${esc(s.name)}</option>`).join('');
-      sel.onchange = e => advF.set = e.target.value;
-    }).catch(()=>{});
+    wireAdvFilters(app);
     if(browseQuery) doSearch(app);
   }
 }
@@ -158,7 +167,8 @@ function buildAdvQuery(nameQ){
   if(advF.colors.length) q.push(`(c:${advF.colors.join(' or c:')})`);
   if(advF.types.length) q.push(`(t:${advF.types.join(' or t:')})`);
   if(advF.cmc !== '') q.push(advF.cmc==='7+' ? 'mv>=7' : `mv=${advF.cmc}`);
-  if(advF.set) q.push(`set:${advF.set}`);
+  if(browseSet) q.push(`set:${browseSet}`);   // détail d'extension : l'extension courante est fixée
+  else if(advF.set) q.push(`set:${advF.set}`);
   if(advF.reserved) q.push('is:reserved');
   /* (la clause "Dans ma collection" est ajoutée dans doSearch, après résolution du nom) */
   let price = null;
@@ -329,26 +339,31 @@ async function fetchAllSetValues(){
   store.set('mtg_setval', cache);
   return setValsAll;
 }
+/* détail d'une extension : mêmes filtres et tris que la recherche avancée,
+   plus un menu déroulant pour passer d'une extension à l'autre */
 async function vSetDetail(app){
   app.innerHTML = `<div class="panel">
-    <button class="btn ghost" id="back">← Toutes les extensions</button>
-    <h3 style="margin-top:10px" id="settitle"></h3>
-    <div id="setcards"><p class="hint">Chargement des cartes…</p></div>
-    <div class="row" style="margin-top:14px" id="pager"></div>
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn ghost" id="back">← Toutes les extensions</button>
+      <select id="setjump" style="min-width:280px" title="Changer d'extension"></select>
+      <h3 id="settitle" style="margin:0"></h3>
+    </div>
+    ${advFilterBarHTML(false)}
+    <div id="searchres"></div>
   </div>`;
   app.querySelector('#back').onclick = () => { browseSet=null; browseMode='sets'; browsePage=1; vBrowse(app); };
+  // menu déroulant : sauter d'une extension à l'autre sans repasser par la liste
   try{
-    const j = await sfSearch(`set:${browseSet}`, browsePage);
-    app.querySelector('#settitle').textContent = `${j.data[0]?.set_name || browseSet.toUpperCase()} — ${j.total_cards} cartes`;
-    renderCardGrid(app.querySelector('#setcards'), j.data);
-    const pager = app.querySelector('#pager');
-    pager.innerHTML = `
-      <button class="btn ghost" id="prev" ${j.has_previous?'':'disabled'}>← Précédent</button>
-      <span class="hint">Page ${browsePage} / ${Math.ceil(j.total_cards/175)}</span>
-      <button class="btn ghost" id="next" ${j.has_more?'':'disabled'}>Suivant →</button>`;
-    if(j.has_previous) pager.querySelector('#prev').onclick = () => { browsePage--; vBrowse(app); };
-    if(j.has_more) pager.querySelector('#next').onclick = () => { browsePage++; vBrowse(app); };
-  }catch(e){ app.querySelector('#setcards').innerHTML = '<p class="hint">Erreur de chargement.</p>'; }
+    const sets = (await sfSets()).filter(s => !s.digital)
+      .sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    const sel = app.querySelector('#setjump');
+    sel.innerHTML = sets.map(s => `<option value="${s.code}" ${s.code===browseSet?'selected':''}>${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
+    sel.onchange = e => { browseSet = e.target.value; browsePage = 1; vBrowse(app); };
+    const cur = sets.find(s => s.code === browseSet);
+    app.querySelector('#settitle').textContent = cur ? cur.name : browseSet.toUpperCase();
+  }catch(e){}
+  wireAdvFilters(app);
+  doSearch(app);   // la requête est scoping set:browseSet (buildAdvQuery donne la priorité à browseSet)
 }
 /* ---- tri des résultats de la recherche avancée ---- */
 const ADV_SORTS = [
@@ -521,6 +536,6 @@ const wrapSets = a => { browseMode='sets'; browseSet=null; vBrowse(a); };
 const wrapSearch = a => { browseMode='search'; browseSet=null; browsePage=1; vBrowse(a); };
 R.views.advsearch = wrapSearch; R.views['browse-sets'] = wrapSets; R.views.browse = vBrowse; R.vBrowse = vBrowse;
 R.gotoAdvSearch = name => { browseQuery = `!"${name}"`; browseMode='search'; browseSet=null; browsePage=1; R.setView('advsearch'); };
-R.gotoSets = code => { browseMode='sets'; browseSet=code; browsePage=1; R.setView('browse-sets'); };
+R.gotoSets = code => { browseMode='sets'; browseSet=code; browsePage=1; R.setView('browse'); };
 
 export { getSetValCache, vBrowse, buildAdvQuery, loadSets, computeSetValue, vSetDetail, ownedQtyMap, sortCards, doSearch, advSortOrder, renderAdvResults, cardLangsOf, cardTileHTML, renderCardGrid, browseMode, advF, advSort, setValCache, ADV_SORTS, advCardPrice, advCardVal };
