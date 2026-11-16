@@ -11,7 +11,7 @@ import { R, S } from '../core/registry.js';
    VUE COLLECTION
    ============================================================ */
 /* état de la vue collection */
-let collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false};
+let collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, foil:false, signed:false};
 let collSort = '', collView = 'list', collChecked = new Set(), collPending = false;
 function setCollSort(v){ collSort = v; }
 
@@ -49,6 +49,8 @@ function collFilterAndSort(){
     }
     if(F.tags.length && !F.tags.every(t => (e.tags||[]).includes(t))) return false;
     if(F.set && e.set !== F.set) return false;
+    if(F.foil && !e.foil) return false;
+    if(F.signed && !e.signed) return false;
     if(!needMeta) return true;
     if(!p) return false;
     if(F.colors.length && !F.colors.some(c => (p.colors||[]).includes(c))) return false;
@@ -127,6 +129,12 @@ function vCollection(app){
       </select>
       <label class="row" style="gap:6px" title="Ne garder que les cartes de la Reserved List">
         <input type="checkbox" id="freserved" ${collF.reserved?'checked':''}> Reserved List
+      </label>
+      <label class="row" style="gap:6px" title="Ne garder que les exemplaires foil">
+        <input type="checkbox" id="ffoil" ${collF.foil?'checked':''}> Foil
+      </label>
+      <label class="row" style="gap:6px" title="Ne garder que les exemplaires signés">
+        <input type="checkbox" id="fsigned" ${collF.signed?'checked':''}> Signée
       </label>
       <button class="btn ghost" id="freset">Réinitialiser</button>
     </div>
@@ -287,7 +295,7 @@ function bindCollection(app, ctx){
   let pmn = null, pmx = null;
   for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
     if(pr != null){ if(pmn==null || pr<pmn) pmn=pr; if(pmx==null || pr>pmx) pmx=pr; } }
-  wirePriceRange(app, collF, upd, (pmn != null && pmx != null && pmn < pmx) ? [pmn, pmx] : null);
+  wirePriceRange(app, collF, upd, (pmx != null && pmx > 0) ? [pmn || 0, pmx] : null);
   { const sel = app.querySelector('#fset');   // toutes les extensions, comme en recherche avancée
     sfSets().then(sets => {
       const sorted = sets.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
@@ -298,7 +306,9 @@ function bindCollection(app, ctx){
   app.querySelector('#fset').onchange = e => { collF.set = e.target.value; upd(); };
   app.querySelector('#fsort').onchange = e => { collSort = e.target.value; vCollection(app); };
   app.querySelector('#freserved').onchange = e => { collF.reserved = e.target.checked; upd(); };
-  app.querySelector('#freset').onclick = () => { collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false}; upd(); };
+  app.querySelector('#ffoil').onchange = e => { collF.foil = e.target.checked; upd(); };
+  app.querySelector('#fsigned').onchange = e => { collF.signed = e.target.checked; upd(); };
+  app.querySelector('#freset').onclick = () => { collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, foil:false, signed:false}; upd(); };
 
   // ---- chips de tags ----
   app.querySelectorAll('.binderchip[data-t]').forEach(ch => ch.onclick = e => {

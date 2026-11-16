@@ -35,7 +35,7 @@ function wirePriceRange(app, F, onSearch, bounds){
   const box = app.querySelector('#pricerange'); if(!box) return;
   const wire = range => {
     const g = { F, floor: range.min, top: range.max };
-    if(bounds && bounds[0] >= 0 && bounds[1] > bounds[0]){ g.floor = Math.max(0.01, bounds[0]); g.top = bounds[1]; }   // resserrage initial (ex : liste filtrée)
+    if(bounds && bounds[1] > 0){ let ba = Math.max(0.01, +bounds[0] || 0), bb = +bounds[1]; if(bb <= ba) bb = ba + Math.max(0.01, ba * 0.01); g.floor = ba; g.top = bb; }   // resserrage initial (ex : liste filtrée), même si un seul prix
     g.toT = v => Math.max(0, Math.min(1000, Math.round(1000 * Math.log(Math.max(v, g.floor) / g.floor) / Math.log(g.top / g.floor))));
     g.toV = t => g.floor * Math.pow(g.top / g.floor, t / 1000);
     g.rmin = box.querySelector('#prmin'); g.rmax = box.querySelector('#prmax');
