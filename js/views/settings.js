@@ -6,12 +6,22 @@ import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
+import { THEMES, applyTheme, currentTheme } from '../core/themes.js';
 
 /* ============================================================
    VUE PARAMÈTRES (Cardmarket)
    ============================================================ */
 function vSettings(app){
   app.innerHTML = `
+    <div class="panel"><h3>Thème de l'interface</h3>
+  <p class="hint">Choisissez l'ambiance visuelle de l'application : le thème est appliqué immédiatement et mémorisé pour vos prochaines visites.</p>
+  <div class="row" style="margin-top:8px">
+    <label style="min-width:280px;flex:1;max-width:420px">Thème
+      <select id="s-theme" style="width:100%"></select>
+    </label>
+    <span class="row" id="s-theme-swatches" style="gap:6px"></span>
+  </div>
+  </div>
   <div class="panel"><h3>Paramètres Cardmarket</h3>
   <p class="hint">Renseignez vos jetons de l'API Cardmarket (https://apiv2.cardmarket.com/ws/documentation). Ils sont stockés côté serveur (BDD) et servent à piloter votre compte : mise en vente, prix, vacances… Les appels passent par le serveur local, qui signe les requêtes OAuth 1.0a.</p>
   <div class="statgrid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
@@ -79,6 +89,22 @@ function vSettings(app){
     const aEl = document.createElement('a'); aEl.href = url; aEl.download = 'stock_cardmarket.csv'; aEl.click();
     URL.revokeObjectURL(url);
   };
+  /* --- Sélecteur de thème --- */
+  const sel = app.querySelector('#s-theme');
+  THEMES.forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o); });
+  sel.value = currentTheme();
+  const paintSwatches = () => {
+    const sw = app.querySelector('#s-theme-swatches'); sw.innerHTML = '';
+    THEMES.forEach(t => {
+      const d = document.createElement('span');
+      d.title = t.name;
+      d.style.cssText = 'width:18px;height:18px;border-radius:50%;background:' + t.swatch + ';border:2px solid ' + (t.id === currentTheme() ? 'var(--accent)' : 'var(--border)') + ';cursor:pointer';
+      d.onclick = () => { sel.value = t.id; sel.onchange(); };
+      sw.appendChild(d);
+    });
+  };
+  sel.onchange = () => { applyTheme(sel.value); paintSwatches(); st('Thème appliqué ✔'); };
+  paintSwatches();
   loadSettings();
 }
 async function setVacation(on, st){
