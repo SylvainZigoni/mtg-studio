@@ -73,6 +73,7 @@ function setPriceBounds(mn, mx){
   g.top = mx;
   g.rmin.value = g.F.pmin !== '' ? g.toT(+g.F.pmin) : 0;
   g.rmax.value = g.F.pmax !== '' ? g.toT(+g.F.pmax) : 1000;
+  if(+g.rmin.value > +g.rmax.value) g.rmin.value = g.rmax.value;   // poignées jamais croisées
   g.paint();
 }
 

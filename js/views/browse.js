@@ -169,11 +169,8 @@ function buildAdvQuery(nameQ){
   else if(advF.set) q.push(`set:${advF.set}`);
   if(advF.reserved) q.push('is:reserved');
   /* (la clause "Dans ma collection" est ajoutée dans doSearch, après résolution du nom) */
-  let price = null;
-  if(advF.pmin !== '' && advF.pmax !== '') price = `eur:[${advF.pmin} TO ${advF.pmax}]`;
-  else if(advF.pmin !== '') price = `eur>=${advF.pmin}`;
-  else if(advF.pmax !== '') price = `eur<=${advF.pmax}`;
-  if(price) q.push(price);
+  if(advF.pmin !== '') q.push(`eur>=${advF.pmin}`);   // 2 clauses : la syntaxe eur:[x TO y] de Scryfall casse avec les espaces
+  if(advF.pmax !== '') q.push(`eur<=${advF.pmax}`);
   return q.length ? q.join(' ') : '';
 }
 
@@ -468,8 +465,9 @@ async function doSearch(app){
 async function refreshPriceBounds(q){
   try{
     const pOf = c => { const v = parseFloat(c.prices?.eur || c.prices?.eur_foil || ''); return isNaN(v) ? null : v; };
-    const jmax = await sfSearch(q, 1, {order:'eur', dir:'desc'});
-    const jmin = await sfSearch(q, 1, {order:'eur', dir:'asc'});
+    const qB = q.replace(/\s*eur:\[[^\]]*\]/g, '').replace(/\s*eur(?:>=|<=)[\d.]+/g, '').replace(/\s+/g, ' ').trim() || '*';   // bornes SANS le filtre prix (sinon auto-filtrage)
+    const jmax = await sfSearch(qB, 1, {order:'eur', dir:'desc'});
+    const jmin = await sfSearch(qB, 1, {order:'eur', dir:'asc'});
     const mx = (jmax.data||[]).map(pOf).find(v => v != null);
     const mn = (jmin.data||[]).map(pOf).find(v => v != null);
     if(mx != null) setPriceBounds(mn != null ? mn : 0.01, mx);
