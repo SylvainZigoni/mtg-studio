@@ -283,11 +283,11 @@ function bindCollection(app, ctx){
   });
   document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
   app.querySelector('#fcmc').onchange = e => { collF.cmc = e.target.value; upd(); };
-  wirePriceRange(app, collF, upd);
-  { let mn = null, mx = null;   // resserre la jauge sur les prix de la liste filtrée
-    for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
-      if(pr != null){ if(mn==null || pr<mn) mn=pr; if(mx==null || pr>mx) mx=pr; } }
-    if(mn != null && mx != null) setPriceBounds(mn, mx); }
+  // resserre la jauge sur les prix de la liste filtrée (floor/top), même si le cache de bornes est froid
+  let pmn = null, pmx = null;
+  for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
+    if(pr != null){ if(pmn==null || pr<pmn) pmn=pr; if(pmx==null || pr>pmx) pmx=pr; } }
+  wirePriceRange(app, collF, upd, (pmn != null && pmx != null && pmn < pmx) ? [pmn, pmx] : null);
   { const sel = app.querySelector('#fset');   // toutes les extensions, comme en recherche avancée
     sfSets().then(sets => {
       const sorted = sets.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));

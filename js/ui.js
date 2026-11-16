@@ -31,10 +31,11 @@ function priceRangeHTML(){
 let activeGauge = null;
 /* branche la jauge sur F.pmin/F.pmax ; onSearch appelé au relâchement d'une poignée.
    Synchrone si le cache de bornes est chaud (pour que setPriceBounds juste après fonctionne). */
-function wirePriceRange(app, F, onSearch){
+function wirePriceRange(app, F, onSearch, bounds){
   const box = app.querySelector('#pricerange'); if(!box) return;
   const wire = range => {
     const g = { F, floor: range.min, top: range.max };
+    if(bounds && bounds[0] >= 0 && bounds[1] > bounds[0]){ g.floor = Math.max(0.01, bounds[0]); g.top = bounds[1]; }   // resserrage initial (ex : liste filtrée)
     g.toT = v => Math.max(0, Math.min(1000, Math.round(1000 * Math.log(Math.max(v, g.floor) / g.floor) / Math.log(g.top / g.floor))));
     g.toV = t => g.floor * Math.pow(g.top / g.floor, t / 1000);
     g.rmin = box.querySelector('#prmin'); g.rmax = box.querySelector('#prmax');
