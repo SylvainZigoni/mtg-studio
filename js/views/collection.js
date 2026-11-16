@@ -1,6 +1,6 @@
 import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
-import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
+import { loadEntries, rebuildIndex, addEntry, setEntries, setTags, setMatches, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
@@ -147,6 +147,12 @@ function vCollection(app){
       <button class="btn danger" id="bulkrm">Supprimer de la collection</button>
     </div>` : ''}
 
+    <div class="row" style="margin:6px 0">
+      <label class="row" style="gap:6px;cursor:pointer" title="Cocher toutes les cartes affichées">
+        <input type="checkbox" id="selallchk" ${list.length && checked.length===list.length ? 'checked' : ''}> Sélectionner tout (${list.length} affiché${list.length>1?'s':''})
+      </label>
+    </div>
+
     ${unknown.length ? `<p class="hint" id="metawait">Chargement des métadonnées des cartes (${unknown.length})…</p>` : ''}
     ${collView === 'grid' ? collGridHTML(list) : collTableHTML(list)}
 
@@ -159,7 +165,7 @@ function vCollection(app){
 function collTableHTML(list){
   if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres. Collection vide ? Ajoutez des cartes depuis une tuile (recherche avancée, extensions…).</p>`;
   return `<table><thead><tr>
-    <th style="width:26px"></th><th style="width:56px"></th><th>Carte</th><th style="width:120px">Édition</th>
+    <th style="width:26px"></th><th style="width:64px"></th><th>Carte</th><th style="width:120px">Édition</th>
     <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th>Tags</th><th style="width:30px"></th>
   </tr></thead><tbody id="collbody">
   ${list.map(e => {
@@ -339,6 +345,12 @@ function bindCollection(app, ctx){
     if(!lbl || collChecked.size === 0) vCollection(app);
     else lbl.textContent = `${collChecked.size} sélectionné(s)`;
   });
+  const selallchk = app.querySelector('#selallchk');
+  if(selallchk) selallchk.onchange = () => {
+    if(selallchk.checked) ctx.list.forEach(e => collChecked.add(e.id));
+    else ctx.list.forEach(e => collChecked.delete(e.id));
+    vCollection(app);
+  };
   const selall = app.querySelector('#selall');
   if(selall) selall.onclick = () => {
     const allSel = ctx.list.length > 0 && ctx.list.every(e => collChecked.has(e.id));
@@ -386,37 +398,61 @@ function bindCollection(app, ctx){
   };
 }
 
-/* modal : modifier la langue et/ou l'état d'un groupe existant de la collection */
+/* modal : modifier une entrée de la collection (édition, langue, état, foil, signée) */
 async function openEntryEditor(e){
   let prints = getPrintCache()[e.norm] || [];
   if(!prints.length){ try{ prints = await sfPrints(e.name); }catch(err){} }
-  let pool = prints;
-  if(e.set){ try{ const sp = await sfSetPrints(e.name, e.set); if(sp.length) pool = sp; }catch(err){} }
-  const inSet = [...new Set(pool.filter(p => p.set === e.set).map(p => p.lang).filter(Boolean))];
-  const all = [...new Set(pool.map(p => p.lang).filter(Boolean))];
-  let langList = inSet.length ? inSet : all;
-  const cur = e.lang || 'en';
-  if(!langList.includes(cur)) langList = [cur, ...langList];
-  if(!langList.length) langList = ['en'];
+  if(!prints.length){ alert('Métadonnées indisponibles pour cette carte.'); return; }
+  // éditions disponibles (set -> set_name), triées par nom d'édition
+  const sets = [...new Map(prints.map(p => [p.set, p.set_name || p.set])).entries()]
+    .sort((a,b) => String(a[1]).localeCompare(String(b[1])));
+  let curSet = e.set || prints[0].set;
+  let langVal = e.lang || 'en';
+  const langsOf = s => { const l = [...new Set(prints.filter(p => p.set === s).map(p => p.lang).filter(Boolean))];
+    return l.length ? l : [...new Set(prints.map(p => p.lang).filter(Boolean))]; };
+  const foilOk = p => (p.finishes||[]).includes('foil') || !!p.eur_foil;
+  const curPrint = () => prints.find(p => p.set === curSet && p.lang === langVal)
+    || prints.find(p => p.set === curSet) || prints[0];
   openModal(`
   <button class="close" id="mclose">✕</button>
   <h3 style="margin-bottom:4px">${esc(e.name)} — ${e.qty} ex.</h3>
-  <p class="hint">${e.set ? `Édition : <b>${esc(e.set.toUpperCase())}</b>${e.cn ? ` · n° ${esc(String(e.cn))}` : ''}` : 'Édition inconnue'}${e.foil ? ' · FOIL' : ''}${e.signed ? ' · signée' : ''}</p>
-  <div class="row" style="margin-top:12px">
-    <label class="row" style="gap:6px"><b>Langue :</b>
-      <select id="ec-lang" title="Langues disponibles pour cette carte dans cette édition">
-        ${langList.map(lg => `<option value="${lg}" ${lg===cur?'selected':''}>${LANGS[lg]||lg}</option>`).join('')}
+  <p class="hint">Choisissez l'édition, la langue (limitée à celles existant dans cette édition), l'état, le foil et la signature.</p>
+  <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px">
+    <label class="row" style="gap:6px"><b>Édition :</b>
+      <select id="ec-set">
+        ${sets.map(([code,name]) => `<option value="${esc(code)}" ${code===curSet?'selected':''}>${esc(name)} (${esc(code.toUpperCase())})</option>`).join('')}
       </select></label>
+    <label class="row" style="gap:6px"><b>Langue :</b>
+      <select id="ec-lang" title="Langues disponibles pour cette carte dans l'édition sélectionnée"></select></label>
     <label class="row" style="gap:6px"><b>État :</b>
       <select id="ec-cond">${CONDS.map(([v,l]) => `<option value="${v}" ${v===(e.cond||'NM')?'selected':''}>${v} — ${l}</option>`).join('')}</select>
     </label>
+    <label class="row" id="ec-foilwrap" style="gap:6px"><input type="checkbox" id="ec-foil" ${e.foil?'checked':''}> Foil</label>
+    <label class="row" style="gap:6px"><input type="checkbox" id="ec-signed" ${e.signed?'checked':''}> Signée</label>
     <button class="btn" id="ec-ok">Enregistrer</button>
   </div>`);
   $('#mclose').onclick = closeModal;
+  const langSel = $('#ec-lang');
+  const refreshLangs = () => {
+    const list = langsOf(curSet);
+    if(!list.includes(langVal)) langVal = list.includes('en') ? 'en' : (list[0] || 'en');
+    langSel.innerHTML = list.map(lg => `<option value="${lg}" ${lg===langVal?'selected':''}>${LANGS[lg]||lg}</option>`).join('');
+    langSel.value = langVal;
+    const ok = foilOk(curPrint());
+    const cb = $('#ec-foil');
+    cb.disabled = !ok; if(!ok) cb.checked = false;
+    $('#ec-foilwrap').style.opacity = ok ? 1 : .45;
+    $('#ec-foilwrap').title = ok ? 'Cette impression existe en foil' : 'Cette impression n\'existe pas en foil';
+  };
+  $('#ec-set').onchange = ev => { curSet = ev.target.value; refreshLangs(); };
+  langSel.onchange = () => { langVal = langSel.value; refreshLangs(); };
+  refreshLangs();
   $('#ec-ok').onclick = () => {
-    e.cond = $('#ec-cond').value; e.lang = $('#ec-lang').value;
-    const alt = pool.find(p => p.set === e.set && p.lang === e.lang);
-    if(alt) e.cn = alt.cn;   // le n° collecteur suit la langue choisie
+    e.set = curSet; e.lang = langVal; e.cond = $('#ec-cond').value;
+    e.foil = !$('#ec-foil').disabled && $('#ec-foil').checked;
+    e.signed = $('#ec-signed').checked;
+    const alt = prints.find(p => p.set === curSet && p.lang === langVal);
+    if(alt) e.cn = alt.cn;   // le n° collecteur suit l'édition/langue choisie
     // fusion avec un groupe identique s'il existe (même édition/foil/signé/état/langue/tags)
     const same = entries.find(x => x.id !== e.id && x.norm === e.norm && (x.set||null)===(e.set||null)
       && (x.cn||null)===(e.cn||null) && !!x.foil===!!e.foil && !!x.signed===!!e.signed
@@ -426,6 +462,7 @@ async function openEntryEditor(e){
     saveColl(); closeModal(); vCollection($('#app'));
   };
 }
+
 function promptTagsFor(e){
   const t = prompt(`Tags pour ${e.qty} × ${e.name} (séparez par des virgules).\nTags existants : ${tags.join(', ')}\nVide = retirer tous les tags`, (e.tags||[]).join(', '));
   if(t === null) return;
