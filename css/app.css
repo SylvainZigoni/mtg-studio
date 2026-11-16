@@ -137,6 +137,8 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .coll-list th{text-align:center}
 .coll-list td:nth-child(5),.coll-list td:nth-child(6),.coll-list td:nth-child(7){text-align:center}
 .coll-list{table-layout:fixed}
+.coll-list td{overflow-wrap:anywhere}
+.coll-list .qty-ctl{flex-wrap:wrap;justify-content:center}
 .coll-list .cellname{overflow-wrap:anywhere}
 /* pastille d'état : couleur fixe selon la condition, identique dans tous les thèmes */
 .cond-MT{color:#fff;border-color:#17A2B8;background:#17A2B8;font-weight:700}
