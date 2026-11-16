@@ -184,7 +184,7 @@ function collTableHTML(list){
   if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres. Collection vide ? Ajoutez des cartes depuis une tuile (recherche avancée, extensions…).</p>`;
   return `<table><thead><tr>
     <th style="width:26px"></th><th style="width:90px"></th><th>Carte</th><th style="width:120px">Édition</th>
-    <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th>Tags</th><th style="width:30px"></th>
+    <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th style="width:90px">Valeur</th><th>Tags</th><th style="width:30px"></th>
   </tr></thead><tbody id="collbody">
   ${list.map(e => {
     const p = entryPrintSync(e);
@@ -196,6 +196,7 @@ function collTableHTML(list){
       <td class="hint">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> <span class="pill">${p.released_at?.slice(0,4)||''}</span>` : '…'}</td>
       <td><div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div></td>
       <td class="p">${pr!=null?eur(pr):'…'}</td>
+      <td class="p" style="font-weight:600">${pr!=null?eur(pr*e.qty):'…'}</td>
       <td>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)} <span class="x" data-xtag="${esc(t)}" data-xid="${e.id}">✕</span></span>`).join('')||'<span class="hint">—</span>'}
         <button class="btn ghost" data-addtagid="${e.id}" style="padding:0 6px;font-size:12px">+</button></td>
       <td><span class="editic" data-edite="${e.id}" title="Modifier (édition, langue, état, foil, signée, tags)" style="margin-right:14px;margin-bottom:14px"></span><span class="trash" title="Retirer tout ce groupe de la collection"></span></td>
