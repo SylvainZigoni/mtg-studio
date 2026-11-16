@@ -192,8 +192,8 @@ function vCollection(app){
 function collTableHTML(list){
   if(!list.length) return `<p class="hint">Aucune carte ne correspond aux filtres. Collection vide ? Ajoutez des cartes depuis une tuile (recherche avancée, extensions…).</p>`;
   return `<table class="coll-list"><thead><tr>
-    <th style="width:26px"></th><th style="width:90px"></th><th>Carte</th><th style="width:100px">Édition</th>
-    <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th style="width:90px">Valeur</th><th style="width:150px">Tags</th><th style="width:30px"></th>
+    <th style="width:26px"></th><th style="width:90px"></th><th style="width:300px">Carte</th><th style="width:100px">Édition</th>
+    <th style="width:64px">Qté</th><th style="width:80px">Prix</th><th style="width:90px">Valeur</th><th style="width:150px">Tags</th><th style="width:70px"></th>
   </tr></thead><tbody id="collbody">
   ${list.map(e => {
     const p = entryPrintSync(e);
