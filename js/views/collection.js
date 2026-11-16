@@ -301,7 +301,7 @@ function bindCollection(app, ctx){
     const nameOf = code => { const en = entries.find(x => x.set === code);
       const pr = en ? (getPrintCache()[en.norm]||[]).find(x => x.set === code) : null;
       return (pr && pr.set_name) || code.toUpperCase(); };
-    const sorted = owned.map(code => ({code, name:nameOf(code)})).sort((a,b) => a.name.localeCompare(b.name));
+    const sorted = owned.map(code => ({code, name:nameOf(code)})).sort((a,b) => a.name.localeCompare(b.name, 'fr', {sensitivity:'base'}));
     sel.innerHTML = `<option value="">Extension : toutes</option>` +
       sorted.map(s => `<option value="${s.code}" ${collF.set===s.code?'selected':''}>${esc(s.name)}</option>`).join('');
   }
