@@ -4,7 +4,7 @@ import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entr
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
-import { openModal, closeModal, priceRangeHTML, wirePriceRange } from '../ui.js';
+import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
 import { R, S } from '../core/registry.js';
 
 /* ============================================================
@@ -457,11 +457,25 @@ async function doSearch(app){
     // délégué à Scryfall (order=/dir=) donc correct sur TOUTES les pages
     const j = await sfSearch(q, browsePage, advSortOrder());
     advLast = {data: j.data || [], total: j.total_cards || 0, q};
+    refreshPriceBounds(q);   // resserre la jauge de prix sur les résultats de cette requête
     renderAdvResults(app);
   }catch(e){ box.innerHTML = `<p class="hint">Aucun résultat ou erreur (vérifiez la requête : "${esc(q)}").</p>`; }
 }
 /* tri délégué à Scryfall (globalement correct entre les pages) quand le mode le permet ;
    type / valeur-collection n'existent pas côté Scryfall -> tri local de la page */
+/* bornes de prix de la requête courante : 2 appels Scryfall (order=eur asc/desc, page 1)
+   -> la jauge de prix se resserre sur les cartes qui correspondent déjà aux filtres */
+async function refreshPriceBounds(q){
+  try{
+    const pOf = c => { const v = parseFloat(c.prices?.eur || c.prices?.eur_foil || ''); return isNaN(v) ? null : v; };
+    const jmax = await sfSearch(q, 1, {order:'eur', dir:'desc'});
+    const jmin = await sfSearch(q, 1, {order:'eur', dir:'asc'});
+    const mx = (jmax.data||[]).map(pOf).find(v => v != null);
+    const mn = (jmin.data||[]).map(pOf).find(v => v != null);
+    if(mx != null) setPriceBounds(mn != null ? mn : 0.01, mx);
+  }catch(e){}
+}
+
 function advSortOrder(){
   if(!advSort) return null;
   const dir = advSort.endsWith('-desc') ? 'desc' : 'asc';

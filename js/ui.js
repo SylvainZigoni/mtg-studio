@@ -7,7 +7,8 @@ function openModal(html){
 function closeModal(){ $('#modalbg').classList.remove('open'); }
 
 /* ---- jauge de prix à deux poignées (échelle logarithmique) ----
-   Bornes servies par /api/pricerange (min/max de prices.db) ; repli 0,01 €..1000 €.
+   Bornes initiales : /api/pricerange (min/max de prices.db), repli 0,01 €..1000 €.
+   setPriceBounds(min,max) resserre ensuite la jauge sur les résultats du filtre courant.
    F.pmin / F.pmax : '' = pas de borne (poignée à l'extrémité). */
 let priceRangeCache = null;
 async function fetchPriceRange(){
@@ -27,35 +28,52 @@ function priceRangeHTML(){
     <div class="pr-labs"><span id="prminlab"></span><span id="prmaxlab"></span></div>
   </div>`;
 }
-async function wirePriceRange(app, F, onSearch){
+let activeGauge = null;
+/* branche la jauge sur F.pmin/F.pmax ; onSearch appelé au relâchement d'une poignée.
+   Synchrone si le cache de bornes est chaud (pour que setPriceBounds juste après fonctionne). */
+function wirePriceRange(app, F, onSearch){
   const box = app.querySelector('#pricerange'); if(!box) return;
-  const range = await fetchPriceRange();
-  const floor = range.min, top = range.max;
-  const toT = v => Math.max(0, Math.min(1000, Math.round(1000 * Math.log(Math.max(v, floor) / floor) / Math.log(top / floor))));
-  const toV = t => floor * Math.pow(top / floor, t / 1000);
-  const rmin = box.querySelector('#prmin'), rmax = box.querySelector('#prmax');
-  const fill = box.querySelector('#prfill'), lmin = box.querySelector('#prminlab'), lmax = box.querySelector('#prmaxlab');
-  rmin.value = F.pmin !== '' ? toT(+F.pmin) : 0;
-  rmax.value = F.pmax !== '' ? toT(+F.pmax) : 1000;
-  const paint = () => {
-    const a = +rmin.value, b = +rmax.value;
-    fill.style.left = (a / 10) + '%';
-    fill.style.width = Math.max(0, (b - a) / 10) + '%';
-    lmin.textContent = a === 0 ? '0 €' : eur(toV(a));
-    lmax.textContent = b >= 1000 ? eur(top) : eur(toV(b));
-    rmin.style.zIndex = a > b - 15 ? 5 : 3;   // poignée du dessus quand elles se croisent
+  const wire = range => {
+    const g = { F, floor: range.min, top: range.max };
+    g.toT = v => Math.max(0, Math.min(1000, Math.round(1000 * Math.log(Math.max(v, g.floor) / g.floor) / Math.log(g.top / g.floor))));
+    g.toV = t => g.floor * Math.pow(g.top / g.floor, t / 1000);
+    g.rmin = box.querySelector('#prmin'); g.rmax = box.querySelector('#prmax');
+    g.fill = box.querySelector('#prfill'); g.lmin = box.querySelector('#prminlab'); g.lmax = box.querySelector('#prmaxlab');
+    g.rmin.value = F.pmin !== '' ? g.toT(+F.pmin) : 0;
+    g.rmax.value = F.pmax !== '' ? g.toT(+F.pmax) : 1000;
+    g.paint = () => {
+      const a = +g.rmin.value, b = +g.rmax.value;
+      g.fill.style.left = (a / 10) + '%';
+      g.fill.style.width = Math.max(0, (b - a) / 10) + '%';
+      g.lmin.textContent = a === 0 ? '0 €' : eur(g.toV(a));
+      g.lmax.textContent = b >= 1000 ? eur(g.top) : eur(g.toV(b));
+      g.rmin.style.zIndex = a > b - 15 ? 5 : 3;   // poignée du dessus quand elles se croisent
+    };
+    g.apply = () => {
+      const a = +g.rmin.value, b = +g.rmax.value;
+      F.pmin = a === 0 ? '' : String(Math.round(g.toV(a) * 100) / 100);
+      F.pmax = b >= 1000 ? '' : String(Math.round(g.toV(b) * 100) / 100);
+      g.paint();
+    };
+    g.rmin.addEventListener('input', () => { if(+g.rmin.value > +g.rmax.value) g.rmin.value = g.rmax.value; g.apply(); });
+    g.rmax.addEventListener('input', () => { if(+g.rmax.value < +g.rmin.value) g.rmax.value = g.rmin.value; g.apply(); });
+    g.rmin.addEventListener('change', () => onSearch && onSearch());
+    g.rmax.addEventListener('change', () => onSearch && onSearch());
+    activeGauge = g;
+    g.paint();
   };
-  const apply = () => {
-    const a = +rmin.value, b = +rmax.value;
-    F.pmin = a === 0 ? '' : String(Math.round(toV(a) * 100) / 100);
-    F.pmax = b >= 1000 ? '' : String(Math.round(toV(b) * 100) / 100);
-    paint();
-  };
-  rmin.addEventListener('input', () => { if(+rmin.value > +rmax.value) rmin.value = rmax.value; apply(); });
-  rmax.addEventListener('input', () => { if(+rmax.value < +rmin.value) rmax.value = rmin.value; apply(); });
-  rmin.addEventListener('change', () => onSearch && onSearch());
-  rmax.addEventListener('change', () => onSearch && onSearch());
-  paint();
+  if(priceRangeCache) wire(priceRangeCache);
+  else fetchPriceRange().then(wire);
+}
+/* resserre la jauge active sur [mn, mx] (ex : prix min/max des cartes correspondant aux filtres actifs) */
+function setPriceBounds(mn, mx){
+  const g = activeGauge; if(!g) return;
+  if(!(mx > 0) || !(mn >= 0) || mn >= mx) return;
+  g.floor = Math.max(0.01, mn);
+  g.top = mx;
+  g.rmin.value = g.F.pmin !== '' ? g.toT(+g.F.pmin) : 0;
+  g.rmax.value = g.F.pmax !== '' ? g.toT(+g.F.pmax) : 1000;
+  g.paint();
 }
 
 /* ---- zoom au survol des visuels (délégation globale, une seule fois) ---- */
@@ -82,4 +100,4 @@ if(!window.__zoomInit){
 }
 
 window.__booted = true;
-export { openModal, closeModal, priceRangeHTML, wirePriceRange, fetchPriceRange };
+export { openModal, closeModal, priceRangeHTML, wirePriceRange, fetchPriceRange, setPriceBounds };

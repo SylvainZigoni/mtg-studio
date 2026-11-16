@@ -4,7 +4,7 @@ import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entr
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
-import { openModal, closeModal, priceRangeHTML, wirePriceRange } from '../ui.js';
+import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
 import { R, S } from '../core/registry.js';
 
 /* ============================================================
@@ -240,6 +240,10 @@ function bindCollection(app, ctx){
   document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
   app.querySelector('#fcmc').onchange = e => { collF.cmc = e.target.value; upd(); };
   wirePriceRange(app, collF, upd);
+  { let mn = null, mx = null;   // resserre la jauge sur les prix de la liste filtrée
+    for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
+      if(pr != null){ if(mn==null || pr<mn) mn=pr; if(mx==null || pr>mx) mx=pr; } }
+    if(mn != null && mx != null) setPriceBounds(mn, mx); }
   app.querySelector('#fset').onchange = e => { collF.set = e.target.value; upd(); };
   app.querySelector('#fsort').onchange = e => { collSort = e.target.value; vCollection(app); };
   app.querySelector('#fsortdir').onclick = () => { collDir *= -1; vCollection(app); };
