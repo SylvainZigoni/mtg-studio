@@ -126,6 +126,14 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .pillbtn{border:1px solid var(--border);border-radius:10px;padding:0 6px;margin-left:3px;cursor:pointer;background:var(--panel)}
 .pillbtn:hover{border-color:var(--accent);color:var(--accent)}
 .infopill{border:1px solid var(--border);border-radius:10px;padding:0 6px;margin-left:3px;background:var(--panel)}
+/* pastille d'état : couleur fixe selon la condition, identique dans tous les thèmes */
+.cond-MT{color:#17A2B8;border-color:#17A2B8;background:#17A2B81F}
+.cond-NM{color:#3BAE56;border-color:#3BAE56;background:#3BAE561F}
+.cond-EX{color:#82891E;border-color:#82891E;background:#82891E1F}
+.cond-GD{color:#FFC107;border-color:#FFC107;background:#FFC1071F}
+.cond-LP{color:#FB892A;border-color:#FB892A;background:#FB892A1F}
+.cond-PL{color:#E06370;border-color:#E06370;background:#E063701F}
+.cond-PO{color:#DC3545;border-color:#DC3545;background:#DC35451F}
 .link{color:var(--accent);cursor:pointer;text-decoration:underline}
 input[type=range]{accent-color:var(--accent)}
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}

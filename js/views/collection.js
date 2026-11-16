@@ -192,7 +192,7 @@ function collTableHTML(list){
     return `<tr class="entryrow" data-id="${e.id}">
       <td><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></td>
       <td>${p?.image ? `<img class="collthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" alt="">` : '<span class="hint">…</span>'}</td>
-      <td><span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span>${e.foil?' <span class="foil-badge" title="Foil">FOIL</span>':''}${e.signed?' <span class="pill" title="Signée">✍</span>':''}<span class="pill infopill" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${p?.reserved?' <span class="rl-badge" title="Reserved List">RL</span>':''}</td>
+      <td><span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span>${e.foil?' <span class="foil-badge" title="Foil">FOIL</span>':''}${e.signed?' <span class="pill" title="Signée">✍</span>':''}<span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${p?.reserved?' <span class="rl-badge" title="Reserved List">RL</span>':''}</td>
       <td class="hint">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> <span class="pill">${p.released_at?.slice(0,4)||''}</span>` : '…'}</td>
       <td><div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div></td>
       <td class="p">${pr!=null?eur(pr):'…'}</td>
@@ -213,7 +213,7 @@ function collGridHTML(list){
       <div class="info">
         <div class="name cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</div>
         <div class="pill">${p ? p.set?.toUpperCase() : ''} ${p && entryPrice(e,p)!=null ? eur(entryPrice(e,p)) : ''}</div>
-        <div><span class="pill infopill" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${e.signed?'<span class="pill">✍</span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
+        <div><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span>${e.signed?'<span class="pill">✍</span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
         <div>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)}</span>`).join('')}</div>
         <div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div>
       </div>
