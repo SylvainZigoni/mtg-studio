@@ -27,12 +27,12 @@ const COLL_SORTS = [
   ['cmc-asc','Coût de mana ↑'], ['cmc-desc','Coût de mana ↓'],
 ];
 
-const RAR_COLORS = { mythic:'#C5C5C5', rare:'#CCB473', uncommon:'#FFFFFF', common:'#2B2728' };
+const RAR_COLORS = { mythic:'#B94421', rare:'#CCB473', uncommon:'#CECECE', common:'#2B2728' };
 function rarityDotHTML(p){
   const rar = (p && p.rarity) || '';
   const isToken = rar === 'token' || /token/i.test((p && p.type_line) || '');
   if(isToken) return `<span class="rarity-dot rarity-token" title="Token">T</span>`;
-  if(RAR_COLORS[rar]) return `<span class="rarity-dot" style="background:${RAR_COLORS[rar]}" title="${esc(rar)}"></span>`;
+  if(RAR_COLORS[rar]) return `<span class="rarity-dot" style="background:${RAR_COLORS[rar]};border-color:${RAR_COLORS[rar]}" title="${esc(rar)}"></span>`;
   return '';
 }
 
