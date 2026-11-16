@@ -1,4 +1,4 @@
-import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
+import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST, frDate } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
@@ -14,6 +14,7 @@ let browseMode = 'sets', browseSet = null, browsePage = 1, browseQuery = '', bro
 let advF = {colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, owned:false};
 let advSort = '', advLast = null, advOwnedLocal = false;   // tri courant + dernière réponse Scryfall + repli filtre collection local
 let setValCache = null;   // code -> {v, date} : valorisation totale d'une extension (calcul à la demande)
+let setSortKey = 'date', setSortDir = -1, setFilterVal = '';  // tri du tableau des extensions (défaut : date décroissante)
 
 function getSetValCache(){
   if(setValCache) return setValCache;
@@ -26,7 +27,8 @@ function vBrowse(app){
   app.innerHTML = `
   <div class="panel">
     ${browseMode==='sets' ? `<p class="hint" style="margin-bottom:10px">Suivi de complétion et de valorisation de vos extensions. Cliquez sur une extension pour parcourir ses cartes.
-      <input type="text" id="setfilter" placeholder="🔍 Filtrer les extensions…" style="margin-left:10px;min-width:220px;padding:6px 10px"></p>
+      <input type="text" id="setfilter" placeholder="🔍 Filtrer les extensions…" style="margin-left:10px;min-width:220px;padding:6px 10px">
+      <button class="btn ghost" id="calcAll" style="margin-left:8px;padding:5px 10px" title="Calcule la valeur totale de chaque extension (cache 30 jours ; les extensions inconnues paginent l'API Scryfall)">💰 Tout calculer</button></p>
       <div id="setlist"><p class="hint">Chargement des extensions…</p></div>`
     : `
     <div class="filterbar">
@@ -188,21 +190,51 @@ async function loadSets(app){
     };
     collectOwned();
     const renderList = (filter) => {
-      const f = norm(filter||'');
-      const rows = sets.filter(s => !f || norm(s.name).includes(f) || s.code.includes(f));
-      box.innerHTML = `<table><thead><tr>
-        <th style="width:60px"></th><th>Extension</th><th style="width:100px">Date</th>
-        <th style="width:110px">Possédées</th><th style="width:130px">Complétion</th>
-        <th style="width:120px">Valeur possédée</th><th style="width:190px">Valeur totale du set</th></tr></thead>
-      <tbody>${rows.map(s => {
+      setFilterVal = filter || '';
+      const f = norm(setFilterVal);
+      const cache = getSetValCache();
+      // lignes enrichies (possédées/complétion/valeurs) puis triées selon l'en-tête actif
+      const rows = sets.filter(s => !f || norm(s.name).includes(f) || s.code.includes(f)).map(s => {
         const o = owned[s.code];
         const distinct = o ? o.distinct.size : 0;
         const pct = s.card_count ? Math.min(100, distinct / s.card_count * 100) : 0;
-        const vc = getSetValCache()[s.code];
+        return { s, o, distinct, pct, vc: cache[s.code] };
+      });
+      const keyVal = r => {
+        switch(setSortKey){
+          case 'name':  return (r.s.name||'').toLowerCase();
+          case 'date':  return r.s.released_at || '';
+          case 'owned': return r.distinct;
+          case 'pct':   return r.pct;
+          case 'value': return r.o ? r.o.value : null;
+          case 'total': return r.vc ? r.vc.v : null;
+        }
+        return null;
+      };
+      rows.sort((a, b) => {
+        const va = keyVal(a), vb = keyVal(b);
+        if(va == null && vb == null) return 0;
+        if(va == null) return 1;    // valeurs inconnues (ex : set non calculé) toujours en dernier
+        if(vb == null) return -1;
+        const c = typeof va === 'string' ? va.localeCompare(vb, 'fr') : va - vb;
+        return c * setSortDir;
+      });
+      const th = (key, label, w) => `<th data-sort="${key}"${w ? ` style="width:${w}px"` : ''}>${label}<span class="sarr">${setSortKey===key ? (setSortDir===1 ? '▲' : '▼') : ''}</span></th>`;
+      box.innerHTML = `<table><thead><tr>
+        <th style="width:60px"></th>
+        ${th('name','Extension')}
+        ${th('date','Date',100)}
+        ${th('owned','Possédées',110)}
+        ${th('pct','Complétion',130)}
+        ${th('value','Valeur possédée',120)}
+        ${th('total','Valeur totale du set',190)}</tr></thead>
+      <tbody>${rows.map(r => {
+        const s = r.s;
+        const o = r.o, distinct = r.distinct, pct = r.pct, vc = r.vc;
         return `<tr data-s="${s.code}" style="cursor:pointer">
           <td>${s.icon?`<img class="seticon" src="${s.icon}" style="width:24px;height:24px" alt="">`:'◈'}</td>
           <td><b>${esc(s.name)}</b> <span class="pill">${s.code.toUpperCase()}</span></td>
-          <td class="hint">${s.released_at||'—'}</td>
+          <td class="hint">${frDate(s.released_at)}</td>
           <td class="hint">${o ? `${distinct} / ${s.card_count}` : `0 / ${s.card_count}`}</td>
           <td>${o ? `<div class="pbar"><div style="width:${pct}%"></div></div><span class="pct">${pct.toFixed(1)}%</span>` : '<span class="pct">—</span>'}</td>
           <td class="hint">${o && o.value>0 ? `<span style="color:var(--warn)">${eur(o.value)}</span>` : '—'}</td>
@@ -210,6 +242,12 @@ async function loadSets(app){
             : `<button class="btn ghost" data-calc="${s.code}" style="padding:3px 8px;font-size:12px">calculer</button>`}</td>
         </tr>`;}).join('')}</tbody></table>
       ${!rows.length ? '<p class="hint">Aucune extension ne correspond.</p>' : ''}`;
+      box.querySelectorAll('th[data-sort]').forEach(h => h.onclick = () => {
+        const k = h.dataset.sort;
+        if(setSortKey === k) setSortDir *= -1;          // même colonne : on inverse le sens
+        else { setSortKey = k; setSortDir = 1; }         // nouvelle colonne : ascendant
+        renderList(setFilterVal);
+      });
       box.querySelectorAll('tr[data-s]').forEach(tr => tr.onclick = () => { browseSet = tr.dataset.s; browsePage=1; vBrowse(app); });
       box.querySelectorAll('[data-calc]').forEach(b => b.onclick = async e => {
         e.stopPropagation();
@@ -221,6 +259,21 @@ async function loadSets(app){
     renderList('');
     const sf = app.querySelector('#setfilter');
     if(sf) sf.oninput = () => renderList(sf.value);
+    // bouton "Tout calculer" : valeur totale de toutes les extensions (cache 30 jours, calcul à la demande)
+    const calcAll = app.querySelector('#calcAll');
+    if(calcAll) calcAll.onclick = async () => {
+      if(!confirm(`Calculer la valeur totale des ${sets.length} extensions ?\nLes extensions déjà en cache (30 jours) sont ignorées ; les autres paginent l'API Scryfall (plusieurs minutes possibles).`)) return;
+      calcAll.disabled = true;
+      let i = 0;
+      for(const s of sets){
+        i++;
+        calcAll.textContent = `💰 calcul… ${i}/${sets.length}`;
+        try{ await computeSetValue(s.code); }catch(e){ /* on continue */ }
+      }
+      calcAll.disabled = false;
+      calcAll.textContent = '💰 Tout calculer';
+      renderList(setFilterVal);
+    };
     // hydrate les entrées sans édition connue (pour compléter owned[])
     const unknown = entries.filter(e => !e.set && !entryPrintSync(e));
     if(unknown.length){ for(const e of unknown){ try{ await sfPrints(e.name); }catch(err){} } collectOwned(); renderList(app.querySelector('#setfilter')?.value || ''); }

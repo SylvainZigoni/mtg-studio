@@ -17,5 +17,10 @@ const CONDS = [['MT','Mint'],['NM','Near Mint'],['EX','Excellent'],['GD','Good']
 const COND_LABEL = Object.fromEntries(CONDS);
 const LANGS = {en:'Anglais', fr:'Français', de:'Allemand', es:'Espagnol', it:'Italien', pt:'Portugais', ja:'Japonais', ko:'Coréen', ru:'Russe', 'zhs':'Chinois (simplifié)', 'zht':'Chinois (traditionnel)', ph:'Phyrexian', cs:'Tchèque'};
 const TYPES_LIST = ['Creature','Instant','Sorcery','Artifact','Enchantment','Land','Planeswalker','Battle'];
+/* date ISO 'YYYY-MM-DD' -> 'JJ/MM/AAAA' (affichage à la française) */
+const frDate = iso => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso ? String(iso) : '—');
+};
 
-export { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST };
+export { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST, frDate };
