@@ -131,6 +131,7 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .ic-foil{width:16px;height:12px;-webkit-mask:url("/assets/icons/foil%20icon.png") center/contain no-repeat;mask:url("/assets/icons/foil%20icon.png") center/contain no-repeat}
 .ic-signed{-webkit-mask:url("/assets/icons/signature.svg") center/contain no-repeat;mask:url("/assets/icons/signature.svg") center/contain no-repeat}
 .pillrow{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:3px}
+.pillrow .infopill{margin-left:0}   /* la 1re pastille alignée avec le nom (gap gère l espacement) */
 .tilerow{display:flex;align-items:center;gap:10px;margin-top:8px}
 .tilerow .qty-ctl{margin-right:auto}
 .colltile .pillrow,.colltile .tilerow{justify-content:flex-start}
