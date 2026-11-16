@@ -260,6 +260,12 @@ async function loadSets(app){
     renderList('');
     const sf = app.querySelector('#setfilter');
     if(sf) sf.oninput = () => renderList(sf.value);
+    // à l'arrivée sur la page : calcule toutes les valeurs en arrière-plan (1 requête /api/setvalues, rapide)
+    const calcAllBtn = app.querySelector('#calcAll');
+    if(calcAllBtn) calcAllBtn.textContent = '💰 chargement…';
+    fetchAllSetValues()
+      .then(() => { if(calcAllBtn) calcAllBtn.textContent = '💰 Tout calculer'; renderList(setFilterVal); })
+      .catch(() => { if(calcAllBtn) calcAllBtn.textContent = '💰 Tout calculer'; });
     // bouton "Tout calculer" : valeur totale de toutes les extensions (cache 30 jours, calcul à la demande)
     const calcAll = app.querySelector('#calcAll');
     if(calcAll) calcAll.onclick = async () => {
