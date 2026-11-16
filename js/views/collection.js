@@ -1,7 +1,7 @@
 import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, setEntries, setTags, setMatches, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
-import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
+import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
@@ -296,12 +296,14 @@ function bindCollection(app, ctx){
   for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
     if(pr != null){ if(pmn==null || pr<pmn) pmn=pr; if(pmx==null || pr>pmx) pmx=pr; } }
   wirePriceRange(app, collF, upd, (pmx != null && pmx > 0) ? [pmn || 0, pmx] : null);
-  { const sel = app.querySelector('#fset');   // toutes les extensions, comme en recherche avancée
-    sfSets().then(sets => {
-      const sorted = sets.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
-      sel.innerHTML = `<option value="">Extension : toutes</option>` +
-        sorted.map(s => `<option value="${s.code}" ${collF.set===s.code?'selected':''}>${esc(s.name)}</option>`).join('');
-    }).catch(()=>{});
+  { const sel = app.querySelector('#fset');   // uniquement les extensions possédées dans la collection
+    const owned = [...new Set(entries.map(e => e.set).filter(Boolean))];
+    const nameOf = code => { const en = entries.find(x => x.set === code);
+      const pr = en ? (getPrintCache()[en.norm]||[]).find(x => x.set === code) : null;
+      return (pr && pr.set_name) || code.toUpperCase(); };
+    const sorted = owned.map(code => ({code, name:nameOf(code)})).sort((a,b) => a.name.localeCompare(b.name));
+    sel.innerHTML = `<option value="">Extension : toutes</option>` +
+      sorted.map(s => `<option value="${s.code}" ${collF.set===s.code?'selected':''}>${esc(s.name)}</option>`).join('');
   }
   app.querySelector('#fset').onchange = e => { collF.set = e.target.value; upd(); };
   app.querySelector('#fsort').onchange = e => { collSort = e.target.value; vCollection(app); };
