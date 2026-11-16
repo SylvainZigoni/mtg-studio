@@ -144,6 +144,7 @@ function vCollection(app){
       <select id="bulktags">${tags.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select>
       <button class="btn" id="bulkadd">+ tag</button>
       <button class="btn ghost" id="bulkdel">− tag</button>
+      <button class="btn ghost" id="bulkedit">✏ Modifier</button>
       <button class="btn danger" id="bulkrm">Supprimer de la collection</button>
     </div>` : ''}
 
@@ -371,6 +372,8 @@ function bindCollection(app, ctx){
     entries.forEach(e => { if(collChecked.has(e.id)) e.tags = (e.tags||[]).filter(x=>x!==t); });
     saveColl(); vCollection(app);
   };
+  const bulkEdit = app.querySelector('#bulkedit');
+  if(bulkEdit) bulkEdit.onclick = () => openBulkEditor(ctx.list.filter(e => collChecked.has(e.id)));
   const bulkRm = app.querySelector('#bulkrm');
   if(bulkRm) bulkRm.onclick = () => {
     if(!confirm(`Supprimer ${collChecked.size} groupe(s) de cartes de la collection ?`)) return;
@@ -480,6 +483,59 @@ function promptTagsFor(e){
   e.tags = [...new Set(chosen)]; saveColl(); vCollection($('#app'));
 }
 
+/* modale : modifier en masse les entrées cochées (édition/langue/état/foil/signée).
+   1 seule entrée -> openEntryEditor (édition complète, tags inclus). */
+async function openBulkEditor(sel){
+  if(!sel.length) return;
+  if(sel.length === 1){ openEntryEditor(sel[0]); return; }
+  // prints des cartes sélectionnées (pour resynchroniser le n° collecteur après changement d'édition/langue)
+  for(const e of sel){ if(!getPrintCache()[e.norm]){ try{ await sfPrints(e.name); }catch(err){} } }
+  const setsPairs = [...new Map(sel.flatMap(e => (getPrintCache()[e.norm]||[]).map(p => [p.set, p.set_name||p.set]))).entries()]
+    .sort((a,b) => String(a[1]).localeCompare(String(b[1])));
+  const langs = [...new Set(sel.flatMap(e => (getPrintCache()[e.norm]||[]).map(p => p.lang).filter(Boolean)))].sort();
+  openModal(`
+  <button class="close" id="mclose">✕</button>
+  <h3 style="margin-bottom:4px">Modifier ${sel.length} groupe(s)</h3>
+  <p class="hint">« Ne pas changer » laisse le champ tel quel. Édition/langue resynchronisent le n° collecteur de chaque carte. Les tags se gèrent avec les boutons + tag / − tag de la barre de sélection.</p>
+  <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px">
+    <label class="row" style="gap:6px"><b>Édition :</b>
+      <select id="be-set"><option value="">Ne pas changer</option>${setsPairs.map(([c,n])=>`<option value="${esc(c)}">${esc(n)} (${esc(c.toUpperCase())})</option>`).join('')}</select></label>
+    <label class="row" style="gap:6px"><b>Langue :</b>
+      <select id="be-lang"><option value="">Ne pas changer</option>${langs.map(l=>`<option value="${l}">${LANGS[l]||l}</option>`).join('')}</select></label>
+    <label class="row" style="gap:6px"><b>État :</b>
+      <select id="be-cond"><option value="">Ne pas changer</option>${CONDS.map(([v,l])=>`<option value="${v}">${v} — ${l}</option>`).join('')}</select></label>
+    <label class="row" style="gap:6px"><b>Foil :</b>
+      <select id="be-foil"><option value="">Ne pas changer</option><option value="1">Foil</option><option value="0">Non foil</option></select></label>
+    <label class="row" style="gap:6px"><b>Signée :</b>
+      <select id="be-signed"><option value="">Ne pas changer</option><option value="1">Signée</option><option value="0">Non signée</option></select></label>
+    <button class="btn" id="be-ok">Enregistrer</button>
+  </div>`);
+  $('#mclose').onclick = closeModal;
+  $('#be-ok').onclick = () => {
+    const set = $('#be-set').value, lang = $('#be-lang').value, cond = $('#be-cond').value;
+    const foil = $('#be-foil').value, signed = $('#be-signed').value;
+    sel.forEach(e => {
+      if(set) e.set = set;
+      if(lang) e.lang = lang;
+      if(set || lang){
+        const prints = getPrintCache()[e.norm] || [];
+        const alt = prints.find(p => p.set === e.set && p.lang === (e.lang||'en')) || prints.find(p => p.set === e.set);
+        if(alt) e.cn = alt.cn;
+      }
+      if(cond) e.cond = cond;
+      if(foil !== '') e.foil = foil === '1';
+      if(signed !== '') e.signed = signed === '1';
+    });
+    // fusion des doublons créés par l'édition en masse
+    const map = new Map();
+    for(const e of entries){
+      const key = [e.norm, e.set||'', e.cn||'', !!e.foil, !!e.signed, e.cond||'NM', e.lang||'en', JSON.stringify([...(e.tags||[])].sort())].join('|');
+      if(map.has(key)) map.get(key).qty += e.qty; else map.set(key, e);
+    }
+    setEntries([...map.values()]); collChecked = new Set(); saveColl(); closeModal(); vCollection($('#app'));
+  };
+}
+
 /* popup d'ajout rapide depuis une tuile (recherche avancée / détail d'extension) :
    l'édition est fixée à l'impression cliquée — pas de grille de choix d'édition */
 async function openAddPopup(name, preset){
@@ -572,4 +628,4 @@ function refreshTileOwned(name, set){
 R.views.collection = vCollection; R.vCollection = vCollection;
 R.openAddPopup = openAddPopup; R.openEntryEditor = openEntryEditor;
 
-export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, setCollSort, TYPES_LIST };
+export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, openBulkEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, setCollSort, TYPES_LIST };
