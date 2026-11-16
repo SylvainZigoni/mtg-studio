@@ -133,6 +133,7 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .pillrow{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:3px}
 .tilerow{display:flex;align-items:center;gap:10px;margin-top:8px}
 .tilerow .qty-ctl{margin-right:auto}
+.colltile .setline{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rarity-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px;border:1px solid var(--border)}
 .rarity-token{background:#000;border-color:#000;color:#fff;font-weight:700;font-size:9px;line-height:10px;text-align:center}
 .rl-badge{display:inline-flex;align-items:center;height:20px;box-sizing:border-box}
