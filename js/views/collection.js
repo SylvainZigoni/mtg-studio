@@ -1,6 +1,6 @@
 import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
-import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
+import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
@@ -570,9 +570,11 @@ async function openAddPopup(name, preset){
 }
 /* met à jour le badge ×N des tuiles d'une carte+édition (toutes langues/états confondus) */
 function refreshTileOwned(name, set){
-  const q = ownedQtyMap().get(norm(name)+'|'+(set||'')) || 0;
+  const s = set || '';
+  const k = norm(name);
+  const q = ownedQtyMap().get(k+'|'+s) || 0;
   document.querySelectorAll('.cardtile').forEach(tl => {
-    if(tl.dataset.set !== set || norm(tl.dataset.name) !== k) return;
+    if(tl.dataset.set !== s || norm(tl.dataset.name) !== k) return;
     let b = tl.querySelector('.qtyb');
     if(q>0){ if(!b){ b = document.createElement('span'); b.className='qtyb'; tl.prepend(b); } b.textContent = '×'+q; }
     else if(b) b.remove();

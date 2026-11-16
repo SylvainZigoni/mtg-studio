@@ -1,6 +1,6 @@
 import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST, frDate } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
-import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
+import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
@@ -336,7 +336,7 @@ async function vSetDetail(app){
     <div id="setcards"><p class="hint">Chargement des cartes…</p></div>
     <div class="row" style="margin-top:14px" id="pager"></div>
   </div>`;
-  app.querySelector('#back').onclick = () => { browseSet=null; vBrowse(app); };
+  app.querySelector('#back').onclick = () => { browseSet=null; browseMode='sets'; browsePage=1; vBrowse(app); };
   try{
     const j = await sfSearch(`set:${browseSet}`, browsePage);
     app.querySelector('#settitle').textContent = `${j.data[0]?.set_name || browseSet.toUpperCase()} — ${j.total_cards} cartes`;
@@ -362,13 +362,6 @@ const ADV_SORTS = [
   ['cmc-asc','Coût de mana ↑'], ['cmc-desc','Coût de mana ↓'],
 ];
 const advCardPrice = c => { const v = parseFloat(c.prices?.eur || c.prices?.eur_foil || ''); return isNaN(v) ? null : v; };
-/* index possédé précalculé : "norm|set" -> quantité (toutes langues/états/n° confondus).
-   Évite de reparcourir `entries` pour chaque tuile (badge ×N, filtre collection, tri valeur). */
-function ownedQtyMap(){
-  const m = new Map();
-  entries.forEach(e => { const k = e.norm+'|'+(e.set||''); m.set(k, (m.get(k)||0) + e.qty); });
-  return m;
-}
 const advCardVal = (c, ownMap) => {   // valeur totale possédée de cette carte dans cette édition (× prix de l'impression)
   const p = advCardPrice(c); if(p == null) return null;
   return p * (ownMap.get(norm(c.name)+'|'+(c.set||'')) || 0);
@@ -525,9 +518,9 @@ function renderCardGrid(box, cards){
     R.openAddPopup(tl.dataset.name, {set: tl.dataset.set, cn: tl.dataset.cn}));
 }
 const wrapSets = a => { browseMode='sets'; browseSet=null; vBrowse(a); };
-const wrapSearch = a => { browseMode='search'; vBrowse(a); };
+const wrapSearch = a => { browseMode='search'; browseSet=null; browsePage=1; vBrowse(a); };
 R.views.advsearch = wrapSearch; R.views['browse-sets'] = wrapSets; R.views.browse = vBrowse; R.vBrowse = vBrowse;
-R.gotoAdvSearch = name => { browseQuery = `!"${name}"`; browseMode='search'; browsePage=1; R.setView('advsearch'); };
+R.gotoAdvSearch = name => { browseQuery = `!"${name}"`; browseMode='search'; browseSet=null; browsePage=1; R.setView('advsearch'); };
 R.gotoSets = code => { browseMode='sets'; browseSet=code; browsePage=1; R.setView('browse-sets'); };
 
 export { getSetValCache, vBrowse, buildAdvQuery, loadSets, computeSetValue, vSetDetail, ownedQtyMap, sortCards, doSearch, advSortOrder, renderAdvResults, cardLangsOf, cardTileHTML, renderCardGrid, browseMode, advF, advSort, setValCache, ADV_SORTS, advCardPrice, advCardVal };
