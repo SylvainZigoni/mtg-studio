@@ -125,6 +125,7 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .pill{font-size:12px;color:var(--muted)}
 .pillbtn{border:1px solid var(--border);border-radius:10px;padding:0 6px;margin-left:3px;cursor:pointer;background:var(--panel)}
 .pillbtn:hover{border-color:var(--accent);color:var(--accent)}
+.infopill{border:1px solid var(--border);border-radius:10px;padding:0 6px;margin-left:3px;background:var(--panel)}
 .link{color:var(--accent);cursor:pointer;text-decoration:underline}
 input[type=range]{accent-color:var(--accent)}
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}
