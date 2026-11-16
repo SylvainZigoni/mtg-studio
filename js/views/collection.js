@@ -146,6 +146,15 @@ function vCollection(app){
       <button class="btn ghost" id="bulkdel">− tag</button>
       <button class="btn ghost" id="bulkedit">✏ Modifier</button>
       <button class="btn danger" id="bulkrm">Supprimer de la collection</button>
+      ${checked.length === 1 ? (() => { const e = checked[0]; return `
+      <span class="hint">·</span>
+      <select id="eb-set" title="Édition"></select>
+      <select id="eb-lang" title="Langue"></select>
+      <select id="eb-cond" title="État">${CONDS.map(([v,l])=>`<option value="${v}" ${v===(e.cond||'NM')?'selected':''}>${v} — ${l}</option>`).join('')}</select>
+      <label class="row" style="gap:4px" title="Foil"><input type="checkbox" id="eb-foil" ${e.foil?'checked':''}> Foil</label>
+      <label class="row" style="gap:4px" title="Signée"><input type="checkbox" id="eb-signed" ${e.signed?'checked':''}> Signée</label>
+      <select id="eb-tags" multiple size="3" style="min-width:130px" title="Tags">${tags.map(t=>`<option ${((e.tags||[]).includes(t))?'selected':''}>${esc(t)}</option>`).join('')}</select>
+      <button class="btn" id="eb-save" title="Enregistrer les modifications sur cette carte">💾 Enregistrer</button>`; })() : ''}
     </div>` : ''}
 
     <div class="row" style="margin:6px 0">
@@ -159,7 +168,7 @@ function vCollection(app){
 
     <p class="hint" style="margin-top:10px" id="collvalue">Valeur des cartes affichées : calcul…</p>
   </div>`;
-  bindCollection(app, {list, unknown, needMeta});
+  bindCollection(app, {list, unknown, needMeta, checked});
   hydrateColl(list, app, unknown);
 }
 
@@ -181,7 +190,7 @@ function collTableHTML(list){
       <td class="p">${pr!=null?eur(pr):'…'}</td>
       <td>${(e.tags||[]).map(t=>`<span class="tagchip filled" data-tag="${esc(t)}">${esc(t)} <span class="x" data-xtag="${esc(t)}" data-xid="${e.id}">✕</span></span>`).join('')||'<span class="hint">—</span>'}
         <button class="btn ghost" data-addtagid="${e.id}" style="padding:0 6px;font-size:12px">+</button></td>
-      <td><span class="trash" title="Retirer tout ce groupe de la collection">🗑</span></td>
+      <td><span class="pillbtn" data-edite="${e.id}" title="Modifier (édition, langue, état, foil, signée, tags)" style="cursor:pointer;font-size:19px;margin-right:8px">✏️</span><span class="trash" title="Retirer tout ce groupe de la collection">🗑</span></td>
     </tr>`;}).join('')}
   </tbody></table>`;
 }
@@ -374,6 +383,50 @@ function bindCollection(app, ctx){
   };
   const bulkEdit = app.querySelector('#bulkedit');
   if(bulkEdit) bulkEdit.onclick = () => openBulkEditor(ctx.list.filter(e => collChecked.has(e.id)));
+  const ebSave = app.querySelector('#eb-save');
+  if(ebSave && ctx.checked && ctx.checked.length === 1){
+    const e = entries.find(x => x.id === ctx.checked[0].id);
+    if(e){
+      let pool = null;
+      (async () => {
+        let prints = getPrintCache()[e.norm] || [];
+        if(!prints.length){ try{ prints = await sfPrints(e.name); }catch(err){} }
+        pool = prints;
+        const setSel = app.querySelector('#eb-set');
+        const pairs = [...new Map(prints.map(p=>[p.set, p.set_name||p.set])).entries()].sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
+        setSel.innerHTML = '<option value="">Ne pas changer</option>' + pairs.map(([c,n])=>`<option value="${esc(c)}" ${c===(e.set||null)?'selected':''}>${esc(n)} (${esc(c.toUpperCase())})</option>`).join('');
+        const fillLangs = async () => {
+          const s = setSel.value || e.set;
+          if(s){ try{ const sp = await sfSetPrints(e.name, s); if(sp.length) pool = sp; }catch(err){} }
+          if(s && !pool.some(x=>x.set===s)) pool = prints.filter(x=>x.set===s);
+          let list = [...new Set((pool||prints).map(x=>x.lang).filter(Boolean))];
+          if(!list.length) list = ['en'];
+          const langSel = app.querySelector('#eb-lang');
+          langSel.innerHTML = list.map(lg=>`<option value="${lg}" ${lg===(e.lang||'en')?'selected':''}>${LANGS[lg]||lg}</option>`).join('');
+        };
+        setSel.onchange = fillLangs;
+        fillLangs();
+      })();
+      ebSave.onclick = () => {
+        const setSel = app.querySelector('#eb-set');
+        if(setSel.value) e.set = setSel.value;
+        e.lang = app.querySelector('#eb-lang').value || 'en';
+        e.cond = app.querySelector('#eb-cond').value;
+        e.foil = app.querySelector('#eb-foil').checked;
+        e.signed = app.querySelector('#eb-signed').checked;
+        e.tags = [...app.querySelector('#eb-tags').selectedOptions].map(o=>o.value);
+        const pr = pool || getPrintCache()[e.norm] || [];
+        const alt = pr.find(p => p.set === e.set && p.lang === e.lang) || pr.find(p => p.set === e.set);
+        if(alt) e.cn = alt.cn;
+        const same = entries.find(x => x.id !== e.id && x.norm === e.norm && (x.set||null)===(e.set||null)
+          && (x.cn||null)===(e.cn||null) && !!x.foil===!!e.foil && !!x.signed===!!e.signed
+          && (x.cond||'NM')===e.cond && (x.lang||'en')===e.lang
+          && JSON.stringify([...(x.tags||[])].sort())===JSON.stringify([...(e.tags||[])].sort()));
+        if(same){ same.qty += e.qty; setEntries(entries.filter(x=>x.id!==e.id)); collChecked.delete(e.id); }
+        saveColl(); vCollection(app);
+      };
+    }
+  }
   const bulkRm = app.querySelector('#bulkrm');
   if(bulkRm) bulkRm.onclick = () => {
     if(!confirm(`Supprimer ${collChecked.size} groupe(s) de cartes de la collection ?`)) return;
@@ -409,13 +462,12 @@ async function openEntryEditor(e){
   // éditions disponibles (set -> set_name), triées par nom d'édition
   const sets = [...new Map(prints.map(p => [p.set, p.set_name || p.set])).entries()]
     .sort((a,b) => String(a[1]).localeCompare(String(b[1])));
-  let curSet = e.set || prints[0].set;
+  let curSet = e.set || (prints.find(p => p.lang === (e.lang||'en')) || prints[0]).set;
   let langVal = e.lang || 'en';
-  const langsOf = s => { const l = [...new Set(prints.filter(p => p.set === s).map(p => p.lang).filter(Boolean))];
-    return l.length ? l : [...new Set(prints.map(p => p.lang).filter(Boolean))]; };
+  let pool = prints;   // printings de l'édition courante, TOUTES langues (sfSetPrints interroge chaque langue explicitement)
   const foilOk = p => (p.finishes||[]).includes('foil') || !!p.eur_foil;
-  const curPrint = () => prints.find(p => p.set === curSet && p.lang === langVal)
-    || prints.find(p => p.set === curSet) || prints[0];
+  const curPrint = () => pool.find(p => p.set === curSet && p.lang === langVal)
+    || pool.find(p => p.set === curSet) || prints[0];
   openModal(`
   <button class="close" id="mclose">✕</button>
   <h3 style="margin-bottom:4px">${esc(e.name)} — ${e.qty} ex.</h3>
@@ -441,8 +493,12 @@ async function openEntryEditor(e){
   </div>`);
   $('#mclose').onclick = closeModal;
   const langSel = $('#ec-lang');
-  const refreshLangs = () => {
-    const list = langsOf(curSet);
+  const refreshLangs = async () => {
+    try{ const sp = await sfSetPrints(e.name, curSet); if(sp.length) pool = sp; }catch(err){}
+    if(!pool.some(x => x.set === curSet)) pool = prints.filter(x => x.set === curSet);
+    let list = [...new Set(pool.map(x => x.lang).filter(Boolean))];
+    if(!list.length) list = [...new Set(prints.map(x => x.lang).filter(Boolean))];
+    if(!list.length) list = ['en'];
     if(!list.includes(langVal)) langVal = list.includes('en') ? 'en' : (list[0] || 'en');
     langSel.innerHTML = list.map(lg => `<option value="${lg}" ${lg===langVal?'selected':''}>${LANGS[lg]||lg}</option>`).join('');
     langSel.value = langVal;
@@ -463,7 +519,7 @@ async function openEntryEditor(e){
     e.foil = !$('#ec-foil').disabled && $('#ec-foil').checked;
     e.signed = $('#ec-signed').checked;
     e.tags = [...$('#ec-tags').selectedOptions].map(o=>o.value);
-    const alt = prints.find(p => p.set === curSet && p.lang === langVal);
+    const alt = pool.find(p => p.set === curSet && p.lang === langVal) || prints.find(p => p.set === curSet && p.lang === langVal);
     if(alt) e.cn = alt.cn;   // le n° collecteur suit l'édition/langue choisie
     // fusion avec un groupe identique s'il existe (même édition/foil/signé/état/langue/tags)
     const same = entries.find(x => x.id !== e.id && x.norm === e.norm && (x.set||null)===(e.set||null)
