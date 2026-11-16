@@ -35,3 +35,4 @@ Dossier : `App MTG`, lancée avec `node server/server.js` (ou `npm start`, Node 
 - decks.json.gz converti en SQLite : refusé pour l'instant.
 - L'app reste locale ; pas d'exposition publique.
 - Mise à jour hebdo des prix/decks gérée via `price_seed.py weekly` + Planificateur de tâches Windows (`0 9 * * 1` recommandé).
+- Thèmes UI : `css/themes.css` (sélecteurs `html[data-theme="..."]`, chargé après `app.css`), liste/apply dans `js/core/themes.js`, sélecteur dans la vue Paramètres ; choix persisté en localStorage (`mtg_theme`) et appliqué avant peinture par un script inline dans `index.html` (anti-FOUC). Thème par défaut : `darkmode`.

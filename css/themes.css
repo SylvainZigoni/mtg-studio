@@ -1,0 +1,93 @@
+/* themes.css — palettes de l'application (chargé APRÈS app.css)
+   Le thème actif est posé sur <html data-theme="..."> par le script inline
+   d'index.html (avant peinture, anti-FOUC) puis par js/core/themes.js. */
+
+/* Thème par défaut = ancien thème sombre */
+html[data-theme="darkmode"]{
+  --bg:#12141c; --panel:#1b1f2b; --panel2:#232838; --text:#e8eaf0; --muted:#9aa1b5;
+  --accent:#5b8cff; --on-accent:#ffffff; --ok:#3ecf6f; --warn:#ffb74d; --bad:#ff5b6a;
+  --border:#2e3547; --topbar-a:#1a2540; --topbar-b:#251b40; --topbar-text:#e8eaf0; --topbar-muted:#9aa1b5;
+  --accent-soft:rgba(91,140,255,.15); --accent2:#a88bff; --accent2-soft:rgba(124,91,255,.15);
+  --chip-bg:rgba(0,0,0,.75); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.8);
+}
+
+/* 1 — Refreshing Summer fun (clair) : #8ecae6 #219ebc #023047 #ffb703 #fb8500 */
+html[data-theme="refreshing-summer"]{
+  --bg:#e3f2fa; --panel:#ffffff; --panel2:#eaf6fc; --text:#023047; --muted:#4f7186;
+  --accent:#fb8500; --on-accent:#ffffff; --ok:#2a9d8f; --warn:#e69a00; --bad:#e63946;
+  --border:#bcdcec; --topbar-a:#219ebc; --topbar-b:#023047; --topbar-text:#ffffff; --topbar-muted:rgba(255,255,255,.75);
+  --accent-soft:rgba(251,133,0,.16); --accent2:#219ebc; --accent2-soft:rgba(33,158,188,.16);
+  --chip-bg:rgba(2,48,71,.85); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.3);
+}
+
+/* 2 — Black & Gold elegance (sombre) : #000000 #14213d #fca311 #e5e5e5 #ffffff */
+html[data-theme="black-gold"]{
+  --bg:#000000; --panel:#14213d; --panel2:#1f2d52; --text:#ffffff; --muted:#a39d8d;
+  --accent:#fca311; --on-accent:#14213d; --ok:#4caf7d; --warn:#ffd166; --bad:#e5484d;
+  --border:#2c3a5e; --topbar-a:#000000; --topbar-b:#14213d; --topbar-text:#ffffff; --topbar-muted:#a39d8d;
+  --accent-soft:rgba(252,163,17,.18); --accent2:#e5e5e5; --accent2-soft:rgba(229,229,229,.12);
+  --chip-bg:rgba(0,0,0,.8); --chip-text:#fca311;
+  --seticon-filter:grayscale(1) brightness(0) invert(.8);
+}
+
+/* 3 — Summer Dream (clair) : #0081a7 #00afb9 #fdfcdc #fed9b7 #f07167 */
+html[data-theme="summer-dream"]{
+  --bg:#fdfcdc; --panel:#fffdf0; --panel2:#fbeed3; --text:#00617d; --muted:#5f8b99;
+  --accent:#0081a7; --on-accent:#ffffff; --ok:#2a9d8f; --warn:#e08a00; --bad:#d64550;
+  --border:#ead9a8; --topbar-a:#0081a7; --topbar-b:#00afb9; --topbar-text:#ffffff; --topbar-muted:rgba(255,255,255,.75);
+  --accent-soft:rgba(0,129,167,.15); --accent2:#f07167; --accent2-soft:rgba(240,113,103,.18);
+  --chip-bg:rgba(0,60,80,.85); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.3);
+}
+
+/* 4 — Summer sunset (clair) : #ff6b35 #f7c59f #efefd0 #004e89 #1a659e */
+html[data-theme="summer-sunset"]{
+  --bg:#efefd0; --panel:#fbf8ec; --panel2:#f3ecd2; --text:#004e89; --muted:#6e7f8f;
+  --accent:#ff6b35; --on-accent:#3d1500; --ok:#2a9d8f; --warn:#e08a00; --bad:#c1121f;
+  --border:#ddd3b4; --topbar-a:#004e89; --topbar-b:#1a659e; --topbar-text:#ffffff; --topbar-muted:rgba(255,255,255,.75);
+  --accent-soft:rgba(255,107,53,.18); --accent2:#1a659e; --accent2-soft:rgba(26,101,158,.14);
+  --chip-bg:rgba(0,60,110,.85); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.3);
+}
+
+/* 5 — Oceanic cactus (clair) : #1a535c #4ecdc4 #f7fff7 #ff6b6b #ffe66d */
+html[data-theme="oceanic-cactus"]{
+  --bg:#f7fff7; --panel:#ffffff; --panel2:#e6f6ef; --text:#1a535c; --muted:#5b8a8f;
+  --accent:#4ecdc4; --on-accent:#06333a; --ok:#3aa17e; --warn:#c9a400; --bad:#e04848;
+  --border:#cfe8e2; --topbar-a:#1a535c; --topbar-b:#4ecdc4; --topbar-text:#ffffff; --topbar-muted:rgba(255,255,255,.75);
+  --accent-soft:rgba(78,205,196,.25); --accent2:#ff6b6b; --accent2-soft:rgba(255,107,107,.16);
+  --chip-bg:rgba(26,83,92,.85); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.3);
+}
+
+/* 6 — Deep Sea (sombre) : #0d1321 #1d2d44 #3e5c76 #748cab #f0ebd8 */
+html[data-theme="deep-sea"]{
+  --bg:#0d1321; --panel:#1d2d44; --panel2:#2b3b56; --text:#f0ebd8; --muted:#748cab;
+  --accent:#748cab; --on-accent:#0d1321; --ok:#45b69a; --warn:#ffb703; --bad:#ff6b6b;
+  --border:#2c3a52; --topbar-a:#0d1321; --topbar-b:#1d2d44; --topbar-text:#f0ebd8; --topbar-muted:#748cab;
+  --accent-soft:rgba(116,140,171,.22); --accent2:#3e5c76; --accent2-soft:rgba(62,92,118,.4);
+  --chip-bg:rgba(0,0,0,.75); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.8);
+}
+
+/* 7 — Nameless (clair) : #133e59 #387387 #8cb8c3 #ff7a41 #ffae90 #feecea */
+html[data-theme="nameless"]{
+  --bg:#feecea; --panel:#ffffff; --panel2:#fbe4dd; --text:#133e59; --muted:#5d8296;
+  --accent:#ff7a41; --on-accent:#3a1c00; --ok:#2a9d8f; --warn:#e8590c; --bad:#c1121f;
+  --border:#eed2c9; --topbar-a:#133e59; --topbar-b:#387387; --topbar-text:#ffffff; --topbar-muted:rgba(255,255,255,.75);
+  --accent-soft:rgba(255,122,65,.18); --accent2:#387387; --accent2-soft:rgba(56,115,135,.15);
+  --chip-bg:rgba(19,62,89,.85); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.3);
+}
+
+/* 8 — TheOne (clair) : #ef233c #ffb703 #08b2e3 #efe9f4 #57a773 #484d6d */
+html[data-theme="theone"]{
+  --bg:#efe9f4; --panel:#ffffff; --panel2:#f5f0fa; --text:#484d6d; --muted:#8b87a0;
+  --accent:#08b2e3; --on-accent:#04303d; --ok:#57a773; --warn:#d99a00; --bad:#ef233c;
+  --border:#ddd5ea; --topbar-a:#484d6d; --topbar-b:#08b2e3; --topbar-text:#ffffff; --topbar-muted:rgba(255,255,255,.75);
+  --accent-soft:rgba(8,178,227,.2); --accent2:#ef233c; --accent2-soft:rgba(239,35,60,.13);
+  --chip-bg:rgba(72,77,109,.85); --chip-text:#ffffff;
+  --seticon-filter:grayscale(1) brightness(0) invert(.3);
+}
