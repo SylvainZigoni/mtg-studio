@@ -306,7 +306,7 @@ function bindCollection(app, ctx){
   });
   document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
   app.querySelector('#fcmc').onchange = e => { collF.cmc = e.target.value; upd(); };
-  // resserre la jauge sur les prix de la liste filtrée (floor/top), même si le cache de bornes est froid
+  // bornes de la liste filtrée : élargissent la jauge si le cache de bornes est froid, sans jamais la resserrer
   let pmn = null, pmx = null;
   for(const e of ctx.list){ const p = entryPrintSync(e); const pr = p ? entryPrice(e, p) : null;
     if(pr != null){ if(pmn==null || pr<pmn) pmn=pr; if(pmx==null || pr>pmx) pmx=pr; } }
