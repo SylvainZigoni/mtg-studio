@@ -13,7 +13,7 @@
 ```
 node server/server.js        # ou : npm start
 ```
-Ouvrez http://localhost:8000 (port personnalisable : `node server/server.js 9000`)
+Ouvrez http://localhost:3000 (port personnalisable : `node server/server.js 8000`)
 
 Le serveur n'a **aucune dépendance** (API standard de Node) et crée
 automatiquement à côté de lui un fichier `mtg_data.db` : c'est la base SQLite

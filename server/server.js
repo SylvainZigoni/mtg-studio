@@ -8,10 +8,10 @@
    dans mtg_data.db (SQLite, à côté). Les prix sont lus dans prices.db
    (généré/maintenu par price_seed.py, resté en Python).
 
-   Lancement :   node server/server.js          (port 8000)
-                  node server/server.js 9000     (port personnalisé)
+   Lancement :   node server/server.js          (port 3000)
+                  node server/server.js 8000     (port personnalisé)
                   npm start
-   Puis ouvrir :  http://localhost:8000
+   Puis ouvrir :  http://localhost:3000
 
    API :
      GET  /api/health          -> {ok:true}
