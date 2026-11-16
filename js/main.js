@@ -2,7 +2,7 @@
 /* ============================================================
    MTG Studio — point d'entrée (js/main.js)
    Collection + Decks MTGTop8 2026 + Matchs + Stats + Tags
-   Version 2026-11-16l (phase 2 : serveur Node zéro-dep dans server/, client en modules ES) */
+   Version 2026-11-16m (phase 2 : serveur Node zéro-dep dans server/, client en modules ES) */
 
 import { $, esc, norm } from './core/util.js';
 import { pullState, myDecks } from './core/model.js';

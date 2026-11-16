@@ -92,6 +92,9 @@ function collFilterAndSort(){
 
 
 function vCollection(app){
+  // conserve le focus si on est en train de taper dans une barre de recherche (le re-rendu recrée le DOM)
+  const ae = document.activeElement;
+  const refocus = ae && (ae.id === 'fq' || ae.id === 'fartist') ? { id: ae.id, pos: ae.selectionStart } : null;
   const {list, unknown, needMeta} = collFilterAndSort();
   // stats globales de la collection (hors filtres) : exemplaires, cartes différentes, valeur totale
   const gQty = entries.reduce((a,e) => a + e.qty, 0);
@@ -188,6 +191,7 @@ function vCollection(app){
 
     <p class="hint" style="margin-top:10px" id="collvalue">Valeur des cartes affichées : calcul…</p>
   </div>`;
+  if(refocus){ const el = app.querySelector('#' + refocus.id); if(el){ el.focus(); if(refocus.pos != null){ try{ el.setSelectionRange(refocus.pos, refocus.pos); }catch(e){} } } }
   bindCollection(app, {list, unknown, needMeta, checked});
   hydrateColl(list, app, unknown);
 }

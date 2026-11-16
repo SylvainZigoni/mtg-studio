@@ -139,6 +139,9 @@ function wireAdvFilters(app){
 
 function vBrowse(app){
   if(browseSet) return vSetDetail(app);
+  // conserve le focus si on est en train de taper dans une barre de recherche (le re-rendu recrée le DOM)
+  const ae = document.activeElement;
+  const refocus = ae && (ae.id === 'sfq' || ae.id === 'adartist') ? { id: ae.id, pos: ae.selectionStart } : null;
   app.innerHTML = `
   <div class="panel">
     ${browseMode==='sets' ? `<p class="hint" style="margin-bottom:10px">Suivi de complétion et de valorisation de vos extensions. Cliquez sur une extension pour parcourir ses cartes.
@@ -147,6 +150,7 @@ function vBrowse(app){
       <div id="setlist"><p class="hint">Chargement des extensions…</p></div>`
     : advFilterBarHTML(true) + `<div id="searchres"></div>`}
   </div>`;
+  if(refocus){ const el = app.querySelector('#' + refocus.id); if(el){ el.focus(); if(refocus.pos != null){ try{ el.setSelectionRange(refocus.pos, refocus.pos); }catch(e){} } } }
   // plus d'onglets en haut : la navigation Par extension / Recherche avancée se fait via le menu burger
   if(browseMode==='sets') loadSets(app);
   else {
@@ -337,6 +341,9 @@ async function fetchAllSetValues(){
 /* détail d'une extension : mêmes filtres et tris que la recherche avancée,
    plus un menu déroulant pour passer d'une extension à l'autre */
 async function vSetDetail(app){
+  // conserve le focus si on est en train de taper dans une barre de recherche (le re-rendu recrée le DOM)
+  const ae = document.activeElement;
+  const refocus = ae && (ae.id === 'sfq' || ae.id === 'adartist') ? { id: ae.id, pos: ae.selectionStart } : null;
   app.innerHTML = `<div class="panel">
     <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn ghost" id="back">← Toutes les extensions</button>
@@ -346,6 +353,7 @@ async function vSetDetail(app){
     ${advFilterBarHTML(false)}
     <div id="searchres"></div>
   </div>`;
+  if(refocus){ const el = app.querySelector('#' + refocus.id); if(el){ el.focus(); if(refocus.pos != null){ try{ el.setSelectionRange(refocus.pos, refocus.pos); }catch(e){} } } }
   app.querySelector('#back').onclick = () => { browseSet=null; browseMode='sets'; browsePage=1; vBrowse(app); };
   // menu déroulant : sauter d'une extension à l'autre sans repasser par la liste
   try{
