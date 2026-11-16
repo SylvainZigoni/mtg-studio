@@ -218,6 +218,7 @@ function collGridHTML(list){
   return `<div class="collgrid">${list.map(e => {
     const p = entryPrintSync(e);
     const rdot = rarityDotHTML(p);
+    const pr = p ? entryPrice(e, p) : null;
     return `<div class="colltile" data-id="${e.id}">
       <span class="qtyb">×${e.qty}${e.foil?' ✦':''}</span>
       <label class="chkb"><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></label>
@@ -226,6 +227,7 @@ function collGridHTML(list){
         <div class="name cinfo" title="${esc(e.name)}" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${rdot}${esc(e.name)}</div>
         <div class="setline">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> ${p.released_at?.slice(0,4)||''}` : '…'}</div>
         <div class="pillrow"><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
+        <div class="pricerow">${pr!=null?`PU : <b>${eur(pr)}</b> · ∑ : <b>${eur(pr*e.qty)}</b>`:'…'}</div>
         <div class="tilerow">
           <div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div>
           <span class="editic" data-edite="${e.id}" title="Modifier (édition, langue, état, foil, signée, tags)"></span>
