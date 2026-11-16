@@ -130,7 +130,7 @@ canvas.chart{max-width:100%;background:var(--panel2);border-radius:10px;margin:6
 .cond-MT{color:#fff;border-color:#17A2B8;background:#17A2B8;font-weight:700}
 .cond-NM{color:#fff;border-color:#3BAE56;background:#3BAE56;font-weight:700}
 .cond-EX{color:#fff;border-color:#82891E;background:#82891E;font-weight:700}
-.cond-GD{color:#fff;border-color:#FFC107;background:#FFC107}
+.cond-GD{color:#000;border-color:#FFC107;background:#FFC107;font-weight:700}
 .cond-LP{color:#fff;border-color:#FB892A;background:#FB892A;font-weight:700}
 .cond-PL{color:#fff;border-color:#E06370;background:#E06370;font-weight:700}
 .cond-PO{color:#fff;border-color:#DC3545;background:#DC3545;font-weight:700}
