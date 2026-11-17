@@ -3,6 +3,7 @@ import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/st
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+import { dbPrice } from '../core/pricedb.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
 import { R, S } from '../core/registry.js';
@@ -379,7 +380,7 @@ const ADV_SORTS = [
   ['type','Type de carte'],
   ['cmc-asc','Coût de mana ↑'], ['cmc-desc','Coût de mana ↓'],
 ];
-const advCardPrice = c => { const v = parseFloat(c.prices?.eur || c.prices?.eur_foil || ''); return isNaN(v) ? null : v; };
+const advCardPrice = c => dbPrice(c && c.id, false);   // prix affiché/tri = prices.db (scryfall_id)
 const advCardVal = (c, ownMap) => {   // valeur totale possédée de cette carte dans cette édition (× prix de l'impression)
   const p = advCardPrice(c); if(p == null) return null;
   return p * (ownMap.get(norm(c.name)+'|'+(c.set||'')) || 0);
@@ -530,7 +531,7 @@ function cardTileHTML(c, cardLangs, ownMap){
   const k = norm(c.name);
   // quantité possédée pour cette carte dans CETTE édition (toutes langues / états / n° confondus)
   const q = (ownMap || ownedQtyMap()).get(k+'|'+(c.set||'')) || 0;
-  const price = c.prices?.eur || c.prices?.eur_foil;
+  const price = dbPrice(c.id, false);   // prix affiché = prices.db (scryfall_id)
   const langs = [...(cardLangs[c.set+'|'+k] || [c.lang])].map(l=>(l||'en').toUpperCase()).join('/');
   return `<div class="cardtile" data-name="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}" style="cursor:pointer" title="Cliquez pour ajouter à la collection (langue, état…)">
     ${q?`<span class="qtyb">×${q}</span>`:''}

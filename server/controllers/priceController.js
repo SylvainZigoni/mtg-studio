@@ -198,6 +198,57 @@ export function apiCollvalue(req, res) {
   });
 }
 
+/* GET /api/prices/days — jours historisés dans prices.db : { from, to, n, days:[ordinals] }.
+   from = plus ancien point de toutes les séries, to = aujourd'hui, days = union des jours avec >= 1 prix.
+   Cache memoire invalide par le mtime du fichier. */
+let daysCache = { mtime: -1, result: null };
+export function apiPriceDays(req, res) {
+  if (!pricesAvailable())
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise a jour (Parametres).' });
+  const mtime = fs.statSync(PRICES_DB).mtimeMs;
+  if (daysCache.result && daysCache.mtime === mtime) return sendJson(res, 200, daysCache.result);
+  const c = getPricesDb();
+  const days = new Set();
+  let from = null;
+  for (const r of c.prepare('SELECT normal, foil FROM series').all()) {
+    for (const blob of [r.normal, r.foil]) {
+      if (!blob) continue;
+      const b = Buffer.from(blob);
+      const n = b.readUInt32LE(0);
+      for (let i = 0; i < n; i++) {
+        const d = b.readInt32LE(4 + 8 * i);
+        days.add(d);
+        if (from === null || d < from) from = d;
+      }
+    }
+  }
+  const to = todayOrdinal();
+  const out = { ok: true, from: dayStr(from), to: dayStr(to), n: days.size, days: [...days].sort((a, b) => a - b) };
+  daysCache = { mtime, result: out };
+  sendJson(res, 200, out);
+}
+
+/* GET /api/prices/last — map scryfall_id -> [last_norm, last_foil] : dernier prix connu de chaque carte,
+   lu dans prices.db. Cache memoire invalide par le mtime du fichier (une mise a jour des prix le purge). */
+let lastMapCache = { mtime: -1, result: null };
+export function apiPricesLast(req, res) {
+  if (!pricesAvailable())
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise a jour (Parametres).' });
+  const mtime = fs.statSync(PRICES_DB).mtimeMs;
+  if (lastMapCache.result && lastMapCache.mtime === mtime) return sendJson(res, 200, lastMapCache.result);
+  const c = getPricesDb();
+  const rows = c.prepare('SELECT c.scryfall_id AS id, s.last_norm AS n, s.last_foil AS f FROM cards c JOIN series s ON s.uuid = c.uuid WHERE s.last_norm IS NOT NULL OR s.last_foil IS NOT NULL').all();
+  const map = {};
+  for (const r of rows) {
+    if (!r.id) continue;
+    map[r.id] = [r.n != null ? round2(r.n) : null, r.f != null ? round2(r.f) : null];
+  }
+  const lastOrd = c.prepare('SELECT MAX(CAST(last_date AS INTEGER)) d FROM series').get().d;
+  const out = { ok: true, lastPoint: dayStr(lastOrd), n: Object.keys(map).length, map };
+  lastMapCache = { mtime, result: out };
+  sendJson(res, 200, out);
+}
+
 /* GET /api/price/status — état de prices.db (dernier point, today_done, last_weekly, run en cours, mtime) */
 export function apiPriceStatus(req, res) {
   if (!pricesAvailable())

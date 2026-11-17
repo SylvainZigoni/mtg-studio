@@ -46,15 +46,29 @@ def download(url, dest):
         return dest
     log(f"Téléchargement {url} …")
     tmp = dest + ".part"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (MTGStudio)"})
-    with urllib.request.urlopen(req) as r, open(tmp, "wb") as f:
-        while True:
-            b = r.read(1 << 20)
-            if not b:
-                break
-            f.write(b)
-    os.replace(tmp, dest)
-    return dest
+    for attempt in range(1, 4):
+        try:
+            size = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (MTGStudio)"})
+            if size:
+                req.add_header("Range", f"bytes={size}-")   # reprise là où ça a coupé
+            with urllib.request.urlopen(req, timeout=60) as r:
+                resume = size and getattr(r, "status", 200) == 206
+                if size and not resume:
+                    size = 0   # serveur sans support Range : on repart de zéro
+                with open(tmp, "ab" if resume else "wb") as f:
+                    while True:
+                        b = r.read(1 << 20)
+                        if not b:
+                            break
+                        f.write(b)
+            os.replace(tmp, dest)
+            return dest
+        except Exception as e:
+            partial = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+            log(f"  tentative {attempt}/3 échouée ({e}) — reprise depuis {partial} octets")
+            time.sleep(2 * attempt)
+    raise RuntimeError(f"téléchargement impossible après 3 tentatives : {url}")
 
 # --------------------------------------------- étape 1 : AllPrices -> series
 # Parseur streaming minimal : descend uniquement dans data/<uuid>/paper/cardmarket/retail
@@ -444,23 +458,61 @@ def update_today(force=False):
                 log(f"{n} cartes lues…")
     log(f"{n} cartes avec prix du jour — écriture dans prices.db…")
     for uuid, nd, fd in upd:
-        row = con.execute("SELECT normal, foil, last_date FROM series WHERE uuid=?", (uuid,)).fetchone()
+        row = con.execute("SELECT normal, foil, last_norm, last_foil, last_date FROM series WHERE uuid=?", (uuid,)).fetchone()
         if row:
-            nb, fb, last_date = row
+            nb, fb, lnorm, lfoil, last_date = row
             for blob, pt, col in ((nb, nd, "normal"), (fb, fd, "foil")):
                 if not pt:
                     continue
                 day = datetime.date(int(pt[0][:4]), int(pt[0][5:7]), int(pt[0][8:10])).toordinal()
                 if blob is None:
-                    con.execute(f"UPDATE series SET {col}=? WHERE uuid=?", (pack_points([(day, pt[1])]), uuid))
+                    packed = pack_points([(day, pt[1])])
+                    if col == "normal":
+                        nb = packed
+                    else:
+                        fb = packed
                     continue
                 (cnt,) = struct.unpack_from("<I", blob, 0)
+                if cnt <= 0:
+                    packed = pack_points([(day, pt[1])])
+                    if col == "normal":
+                        nb = packed
+                    else:
+                        fb = packed
+                    continue
                 last_day = struct.unpack_from("<i", blob, 4 + 8 * (cnt - 1))[0]
                 if day > last_day:      # append simple en fin de blob
                     ba = bytearray(blob)
                     ba[0:4] = struct.pack("<I", cnt + 1)
                     ba += struct.pack("<if", day, pt[1])
-                    con.execute(f"UPDATE series SET {col}=? WHERE uuid=?", (bytes(ba), uuid))
+                    if col == "normal":
+                        nb = bytes(ba)
+                    else:
+                        fb = bytes(ba)
+            con.execute("UPDATE series SET normal=?, foil=? WHERE uuid=?", (nb, fb, uuid))
+            # last_* = queue reelle des blobs (source de verite) : jamais en retard sur les points ajoutes
+            def _tail(blob):
+                if not blob:
+                    return None
+                (cnt,) = struct.unpack_from("<I", blob, 0)
+                if cnt <= 0:
+                    return None
+                return struct.unpack_from("<if", blob, 4 + 8 * (cnt - 1))
+            tn = _tail(nb)
+            tf = _tail(fb)
+            if tn:
+                lnorm = tn[1]
+            if tf:
+                lfoil = tf[1]
+            days = [t[0] for t in (tn, tf) if t]
+            if days:
+                try:
+                    prev = int(last_date)
+                except (TypeError, ValueError):
+                    prev = 0
+                last_date = str(max(max(days), prev))
+            con.execute("UPDATE series SET last_norm=?, last_foil=?, last_date=? WHERE uuid=?",
+                        (lnorm, lfoil, last_date, uuid))
         else:
             npts = downsample(normal[-1:] if normal else [])
             fpts = downsample(foil[-1:] if foil else [])
@@ -592,15 +644,14 @@ def weekly():
                         changed = True
                         continue
                     (cnt,) = struct.unpack_from("<I", blob, 0)
-                    last_day = struct.unpack_from("<i", blob, 4 + 8 * (cnt - 1))[0]
-                    new = [p for p in pts if p[0] > last_day]
-                    if not new:
+                    old = [(struct.unpack_from("<i", blob, 4 + 8 * k)[0],
+                            struct.unpack_from("<f", blob, 8 + 8 * k)[0]) for k in range(cnt)]
+                    have = {d for d, _ in old}
+                    add = [p for p in pts if p[0] not in have]   # comble aussi les trous intérieurs (pas que la queue)
+                    if not add:
                         continue
-                    ba = bytearray(blob)
-                    ba[0:4] = struct.pack("<I", cnt + len(new))
-                    for day, price in new:
-                        ba += struct.pack("<if", day, price)
-                    con.execute(f"UPDATE series SET {col}=? WHERE uuid=?", (bytes(ba), uuid))
+                    merged = sorted(old + add)
+                    con.execute(f"UPDATE series SET {col}=? WHERE uuid=?", (pack_points(merged), uuid))
                     changed = True
                     news += 1
                 # rafraîchit les colonnes "last_*"

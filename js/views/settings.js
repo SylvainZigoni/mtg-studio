@@ -6,6 +6,7 @@ import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
+import { loadLastPrices, loadPriceDays, mountPriceTimeline, refreshPriceTimelines } from '../core/pricedb.js';
 import { THEMES, applyTheme, currentTheme } from '../core/themes.js';
 
 /* ============================================================
@@ -59,6 +60,7 @@ function vSettings(app){
     <span id="p-status" class="hint"></span>
   </div>
   <p class="hint" id="p-info" style="margin-top:8px"></p>
+  <div class="row" style="margin-top:6px"><div id="priceline" style="flex:1"></div></div>
   </div>
 `;
   const st = m => { app.querySelector('#s-status').textContent = m; };
@@ -211,6 +213,7 @@ function vSettings(app){
       if (!j.ok) { psay('Statut indisponible : ' + (j.error || r.status)); return false; }
       psay(j.run ? `en cours — ${j.run}` : (j.todayDone ? `dernier point intégré : ${j.todayDone}` : 'jamais lancé'));
       pInfo.textContent = `prices.db : ${j.cards} cartes · ${j.series} séries · dernier point ${j.lastPoint || '—'} · today_done=${j.todayDone || '—'} · last_weekly=${j.lastWeekly || '—'} · fichier modifié le ${j.mtime}`;
+      if (!j.run) { try { await loadLastPrices(); await loadPriceDays(); refreshPriceTimelines(); } catch(e){} }   // met à jour la map des prix affichés + la timeline
       return !!j.run;
     } catch (e) { psay('Serveur injoignable.'); return false; }
   };
@@ -230,6 +233,7 @@ function vSettings(app){
   };
   app.querySelector('#p-today').onclick = () => seedPrices('today');
   app.querySelector('#p-weekly').onclick = () => seedPrices('weekly');
+  loadPriceDays().then(() => mountPriceTimeline(app.querySelector('#priceline')));
   pollPrices();
 }
 async function setVacation(on, st){

@@ -8,6 +8,7 @@ import { $, esc, norm } from './core/util.js';
 import { pullState, myDecks } from './core/model.js';
 import { DECKS, loadData } from './core/decks.js';
 import { sfAutocomplete } from './core/scryfall.js';
+import { loadLastPrices, loadPriceDays } from './core/pricedb.js';
 import { R, S } from './core/registry.js';
 import './views/collection.js';
 import './views/browse.js';
@@ -129,6 +130,7 @@ pullState().then(async () => {
       if(el) el.textContent = `Chargement des ${m.decks} decks 2026 depuis la base SQLite…`;
     }
   }catch(e){}
+  await Promise.all([loadLastPrices(), loadPriceDays()]);   // prix affichés = prices.db (map scryfall_id + jours historisés)
   loadData();
 });
 // mise à jour quotidienne des prix (AllPricesToday → prices.db), 1×/jour côté serveur

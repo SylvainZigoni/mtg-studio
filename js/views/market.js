@@ -6,6 +6,7 @@ import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
+import { loadPriceDays, mountPriceTimeline } from '../core/pricedb.js';
 
 /* ============================================================
    VUE MARCHÉ (historique MTGJSON via /api/market)
@@ -24,8 +25,10 @@ function vMarket(app){
       </div>
     </div>
     <p class="hint" style="margin:6px 0 2px">Source : prix retail Cardmarket (EUR) via MTGJSON, accumulés dans <code>prices.db</code> (exécutez <code>price_seed.py prices</code> puis <code>price_seed.py cards</code> une fois ; les prix du jour s'ajoutent automatiquement à chaque ouverture de l'app). MTGJSON ne fournit qu'environ 3 mois de recul initial : les fenêtres plus larges comparent au plus ancien prix connu, et l'historique s'allonge au fil des jours.</p>
+    <div class="row" style="align-items:center;gap:8px;margin:8px 0 2px"><span class="hint">Jours historisés :</span><div id="priceline" style="flex:1"></div></div>
     <div id="mkres"><p class="hint">Chargement…</p></div>
   </div>`;
+  loadPriceDays().then(() => mountPriceTimeline(app.querySelector('#priceline')));
   const run = () => {
     const box = app.querySelector('#mkres');
     box.innerHTML = '<p class="hint">Chargement…</p>';
