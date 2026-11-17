@@ -22,7 +22,8 @@
      GET  /api/collvalue       -> valorisation de la collection
      GET|POST /api/price/today -> lance price_seed.py today en arrière-plan
      GET|POST /api/mkm/settings, POST /api/mkm/* -> proxy signé OAuth Cardmarket
-     GET|POST /api/scrape, GET /api/scrape/status -> scraping MTGTop8 (scrape_run.py : phase1 + crawl)
+     GET|POST /api/scrape, GET /api/scrape/status -> scraping MTGTop8 année en cours (scrape_run.py : phase1 + crawl)
+     POST /api/scrape/one {year,format,seconds}, GET /api/scrape/grid -> scraping ciblé année x format (scrape_year.py) + grille formats x années lue dans la snapshot
      GET  /api/decks         -> dataset decks depuis mtgtop8_2026_snapshot.sqlite (JSON gzippe, cache mtime)
      GET  /api/decks/meta    -> compteurs (decks/events/cartes/max date, par format)
    ============================================================ */

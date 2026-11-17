@@ -120,6 +120,11 @@ prix fonctionnent.
   (le serveur construit le JSON depuis la snapshot, le gzippe et le met en cache ;
   le cache est invalidé automatiquement quand la base change). Rechargez ensuite
   la page (Ctrl+F5).
+- Le panneau affiche aussi un **tableau formats x années** (année en cours + 4
+  précédentes, générées automatiquement) : case verte avec le nombre de decks
+  scrapés (lu dans la base via `GET /api/scrape/grid`), ou rouge « Lancer le
+  scraping » qui lance `python scrape_year.py <année> <FORMAT>` pour cette case.
+  Relancer une case déjà faite ne crée aucun doublon (clés primaires).
 
 ## Sources externes
 - Visuels, toutes les extensions, prix (EUR Cardmarket) : API publique

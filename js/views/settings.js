@@ -49,6 +49,7 @@ function vSettings(app){
     <span id="s-scrape-status" class="hint"></span>
   </div>
   <p class="hint" id="s-scrape-info" style="margin-top:8px"></p>
+  <div id="s-scrape-grid"></div>
   </div>
 `;
   const st = m => { app.querySelector('#s-status').textContent = m; };
@@ -138,9 +139,44 @@ function vSettings(app){
       return !!j.running;
     } catch (e) { say('Serveur injoignable.'); return false; }
   };
+  const gridEl = app.querySelector('#s-scrape-grid');
+  const loadGrid = async () => {
+    const cy = new Date().getFullYear();
+    const years = []; for (let y = cy; y >= cy - 4; y--) years.push(y);  // en 2027, la colonne 2027 apparait toute seule
+    let grid = {};
+    try { const r = await fetch('/api/scrape/grid'); const j = await r.json(); if (j.ok) grid = j.grid || {}; } catch (e) {}
+    const secs = () => Math.max(60, Math.floor(Number(app.querySelector('#s-scrape-secs').value) || 3600));
+    let html = `<table class="scrape-grid"><thead><tr><th>Format / année</th>${years.map(y => `<th>${y}</th>`).join('')}</tr></thead><tbody>`;
+    for (const [code, name] of Object.entries(FMT_NAMES)) {
+      html += `<tr><td>${esc(name)}</td>`;
+      for (const y of years) {
+        const cell = (grid[code] || {})[String(y)] || { total: 0, fetched: 0 };
+        html += cell.fetched > 0
+          ? `<td><button class="grid-ok" data-fmt="${code}" data-year="${y}" title="${cell.fetched}/${cell.total} decks scrapés pour ${esc(name)} ${y} — cliquer relance sans doublon">${cell.fetched}</button></td>`
+          : `<td><button class="grid-todo" data-fmt="${code}" data-year="${y}" title="Aucun deck scrapé pour ${esc(name)} ${y}">Lancer le scraping</button></td>`;
+      }
+      html += '</tr>';
+    }
+    gridEl.innerHTML = html + '</tbody></table>';
+    gridEl.querySelectorAll('button').forEach(b => {
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const r = await fetch('/api/scrape/one', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year: +b.dataset.year, format: b.dataset.fmt, seconds: secs() }) });
+          const j = await r.json();
+          say(j.ok ? `Scraping ${b.dataset.fmt} ${b.dataset.year} lancé ✔` : `Erreur : ${j.error || r.status}`);
+        } catch (e) { say('Serveur injoignable.'); }
+        if (scrapeTimer) clearTimeout(scrapeTimer);
+        pollScrape();
+      };
+    });
+  };
   const pollScrape = async () => {
     scrapeTimer = null;
-    if (await refreshScrape()) scrapeTimer = setTimeout(pollScrape, 5000);
+    const running = await refreshScrape();
+    await loadGrid();
+    if (running) scrapeTimer = setTimeout(pollScrape, 5000);
   };
   app.querySelector('#s-scrape').onclick = async () => {
     const secs = Math.max(60, Math.floor(Number(app.querySelector('#s-scrape-secs').value) || 3600));

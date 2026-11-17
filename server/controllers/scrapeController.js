@@ -40,6 +40,50 @@ export function apiScrapeStart(req, res) {
   }
 }
 
+const FORMATS_OK = new Set(['MO', 'LE', 'VI', 'PAU', 'PEA', 'PREM', 'EDH']);
+
+/* POST /api/scrape/one  body: {year, format, seconds} — scraping d'une année x un format (scrape_year.py) */
+export function apiScrapeOne(req, res) {
+  const st = readStatusFile();
+  if (st.running && pidAlive(st.pid))
+    return sendJson(res, 409, { ok: false, error: `un scraping est deja en cours (pid ${st.pid})` });
+  const b = req.body || {};
+  const fmt = String(b.format || '').toUpperCase();
+  const year = Math.floor(Number(b.year));
+  const seconds = Math.max(60, Math.floor(Number(b.seconds) || 3600));
+  if (!FORMATS_OK.has(fmt)) return sendJson(res, 400, { ok: false, error: 'format invalide' });
+  if (!Number.isInteger(year) || year < 2000 || year > new Date().getFullYear() + 1)
+    return sendJson(res, 400, { ok: false, error: 'annee invalide' });
+  try {
+    const child = spawn('python', ['scrape_year.py', String(year), fmt, String(seconds)], { cwd: ROOT, detached: true, stdio: 'ignore' });
+    child.on('error', e => console.error(`[scrape/one] erreur : ${e.message}`));
+    child.unref();
+    sendJson(res, 200, { ok: true, started: true, year, format: fmt, seconds });
+  } catch (e) {
+    sendJson(res, 500, { ok: false, error: String(e.message || e) });
+  }
+}
+
+/* GET /api/scrape/grid — nb de decks par (format, année), lus dans la snapshot SQLite */
+export function apiScrapeGrid(req, res) {
+  const empty = () => sendJson(res, 200, { ok: true, grid: {} });
+  if (!fs.existsSync(SNAPSHOT_DB)) return empty();
+  let c;
+  try { c = new DatabaseSync(SNAPSHOT_DB, { readOnly: true }); } catch { return empty(); }
+  try {
+    const grid = {};
+    for (const r of c.prepare(`SELECT d.format AS f, substr(e.event_date, 1, 4) AS y,
+                                      COUNT(*) AS total,
+                                      SUM(CASE WHEN d.fetched = 1 THEN 1 ELSE 0 END) AS fetched
+                               FROM decks d JOIN events e ON e.eid = d.eid
+                               GROUP BY d.format, y`).all()) {
+      if (!r.f || !r.y) continue;
+      (grid[r.f] = grid[r.f] || {})[r.y] = { total: r.total, fetched: r.fetched || 0 };
+    }
+    sendJson(res, 200, { ok: true, grid });
+  } finally { c.close(); }
+}
+
 /* Progression lue dans la base snapshot (equivalent du status() de scraper.py) */
 function snapshotStats() {
   if (!fs.existsSync(SNAPSHOT_DB)) return null;
