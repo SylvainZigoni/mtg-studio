@@ -69,9 +69,9 @@ def parse_event_page(h):
     iso = f"20{m.group(4)}-{m.group(3)}-{m.group(2)}" if m else None
     stars = len(re.findall(r'<img src=/graph/star\.png>', h))
     decks = re.findall(
-        r'align=center class=S14>(\d+)</div>.*?href=\?e=\d+&d=(\d+)&f=\w+>([^<]+)</a>\s*</div>.*?'
-        r'class=player href=search\?player=[^>]*>([^<]+)</a>', h, re.S)
-    return name, place, iso, players, stars, [(int(r), int(d), n.strip(), p.strip()) for r, d, n, p in decks]
+        r'align=center class=S14>([\d\-]+)</div>.*?href=\?e=\d+&d=(\d+)&f=\w+>[^<]*(?:<img[^>]*>)?</a>.*?'
+        r'href=\?e=\d+&d=\d+&f=\w+>([^<]+)</a>.*?class=player href=search\?player=[^>]*>([^<]+)</a>', h, re.S)
+    return name, place, iso, players, stars, [(int(r.split('-')[0]), int(d), n.strip(), p.strip()) for r, d, n, p in decks]
 
 def parse_deck_page(h):
     a = re.search(r'archetype\?a=\d+>([^<]+) decks', h)

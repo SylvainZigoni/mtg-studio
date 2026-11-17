@@ -120,6 +120,10 @@ prix fonctionnent.
   (le serveur construit le JSON depuis la snapshot, le gzippe et le met en cache ;
   le cache est invalidé automatiquement quand la base change). Rechargez ensuite
   la page (Ctrl+F5).
+- **Contrôle d'exhaustivité** (outil de dev, non publié dans le client) :
+  `python check_scrape.py [FORMAT] [ANNEE] [--decks] [--max-events N]` compare le site
+  à `mtgtop8.sqlite` (events, puis decks did par did avec `--decks`) et écrit
+  `check_report.json`. Ex : `python check_scrape.py PREM 2022 --decks`.
 - Le panneau affiche aussi un **tableau formats x années** (année en cours + 4
   précédentes, générées automatiquement) : case verte avec le nombre de decks
   scrapés (lu dans la base via `GET /api/scrape/grid`), ou rouge « Lancer le

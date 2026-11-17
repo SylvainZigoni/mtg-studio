@@ -23,6 +23,7 @@ price_cache/
 
 # --- Statut runtime du scraping MTGTop8 (regénéré à chaque run) ---
 scrape_status.json
+check_report.json
 export_status.json
 
 # --- Outils de dev locaux (split app.js -> js/, non versionnés) ---
