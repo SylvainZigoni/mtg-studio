@@ -462,8 +462,8 @@ def update_today(force=False):
                     ba += struct.pack("<if", day, pt[1])
                     con.execute(f"UPDATE series SET {col}=? WHERE uuid=?", (bytes(ba), uuid))
         else:
-            npts = downsample(nd or [])
-            fpts = downsample(fd or [])
+            npts = downsample(normal[-1:] if normal else [])
+            fpts = downsample(foil[-1:] if foil else [])
             if npts or fpts:
                 con.execute("INSERT OR REPLACE INTO series VALUES(?,?,?,?,?,?)",
                             (uuid, pack_points(npts), pack_points(fpts),
@@ -628,13 +628,23 @@ def weekly():
 if __name__ == "__main__":
     os.makedirs(CACHE_DIR, exist_ok=True)
     what = sys.argv[1] if len(sys.argv) > 1 else "prices"
-    if what == "prices":
-        seed_prices()
-    elif what == "cards":
-        seed_cards()
-    elif what == "today":
-        update_today(force="--force" in sys.argv)
-    elif what == "weekly":
-        weekly()
-    else:
-        print(__doc__)
+    con = init_db()
+    con.execute("INSERT OR REPLACE INTO meta VALUES('run', ?)", (f"{what} {time.strftime('%Y-%m-%d %H:%M:%S')} pid={os.getpid()}",))
+    con.commit()
+    try:
+        if what == "prices":
+            seed_prices()
+        elif what == "cards":
+            seed_cards()
+        elif what == "today":
+            update_today(force="--force" in sys.argv)
+        elif what == "weekly":
+            weekly()
+        else:
+            print(__doc__)
+    finally:
+        try:
+            con.execute("DELETE FROM meta WHERE k='run'")
+            con.commit()
+        except Exception:
+            pass

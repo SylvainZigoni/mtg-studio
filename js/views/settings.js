@@ -51,6 +51,15 @@ function vSettings(app){
   <p class="hint" id="s-scrape-info" style="margin-top:8px"></p>
   <div id="s-scrape-grid"></div>
   </div>
+  <div class="panel"><h3>Mise à jour des prix (prices.db ← MTGJSON)</h3>
+  <p class="hint">Les prix affichés dans l'app viennent <b>uniquement</b> de <code>prices.db</code> (historique Cardmarket lu dans MTGJSON par <code>price_seed.py</code>). Mise à jour auto au chargement de l'app (prix du jour) et hebdo (fusion). Boutons pour forcer : journal dans <code>price_seed.log</code>.</p>
+  <div class="row" style="margin-top:10px;flex-wrap:wrap">
+    <button class="btn" id="p-today">💶 Prix du jour (today)</button>
+    <button class="btn ghost" id="p-weekly">🗓️ Fusion hebdomadaire (weekly)</button>
+    <span id="p-status" class="hint"></span>
+  </div>
+  <p class="hint" id="p-info" style="margin-top:8px"></p>
+  </div>
 `;
   const st = m => { app.querySelector('#s-status').textContent = m; };
   const loadSettings = async () => {
@@ -190,6 +199,38 @@ function vSettings(app){
     pollScrape();
   };
   pollScrape();
+  /* --- Mise à jour des prix (prices.db via MTGJSON) --- */
+  const pInfo = app.querySelector('#p-info');
+  const pSt = app.querySelector('#p-status');
+  const psay = m => { pSt.textContent = m; };
+  let pTimer = null;
+  const refreshPrices = async () => {
+    try {
+      const r = await fetch('/api/price/status');
+      const j = await r.json();
+      if (!j.ok) { psay('Statut indisponible : ' + (j.error || r.status)); return false; }
+      psay(j.run ? `en cours — ${j.run}` : (j.todayDone ? `dernier point intégré : ${j.todayDone}` : 'jamais lancé'));
+      pInfo.textContent = `prices.db : ${j.cards} cartes · ${j.series} séries · dernier point ${j.lastPoint || '—'} · today_done=${j.todayDone || '—'} · last_weekly=${j.lastWeekly || '—'} · fichier modifié le ${j.mtime}`;
+      return !!j.run;
+    } catch (e) { psay('Serveur injoignable.'); return false; }
+  };
+  const pollPrices = async () => {
+    pTimer = null;
+    if (await refreshPrices()) pTimer = setTimeout(pollPrices, 3000);
+  };
+  const seedPrices = async mode => {
+    psay(`Lancement de price_seed.py ${mode}…`);
+    try {
+      const r = await fetch('/api/price/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+      const j = await r.json();
+      psay(j.ok ? `Mise à jour lancée (${mode}) ✔` : `Erreur : ${j.error || r.status}`);
+    } catch (e) { psay('Serveur injoignable.'); }
+    if (pTimer) clearTimeout(pTimer);
+    pollPrices();
+  };
+  app.querySelector('#p-today').onclick = () => seedPrices('today');
+  app.querySelector('#p-weekly').onclick = () => seedPrices('weekly');
+  pollPrices();
 }
 async function setVacation(on, st){
   st(on ? 'Activation des vacances…' : 'Désactivation des vacances…');
