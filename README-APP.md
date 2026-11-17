@@ -127,8 +127,10 @@ prix fonctionnent.
 - Le panneau affiche aussi un **tableau formats x années** (année en cours + 4
   précédentes, générées automatiquement) : case verte avec le nombre de decks
   scrapés (lu dans la base via `GET /api/scrape/grid`), ou rouge « Lancer le
-  scraping » qui lance `python scrape_year.py <année> <FORMAT>` pour cette case.
-  Relancer une case déjà faite ne crée aucun doublon (clés primaires).
+  scraping » qui lance `python scrape_year.py <année> <FORMAT> <s> --recheck` pour cette case.
+  Le mode `--recheck` remet d'abord les events du couple à `fetched=0` pour re-lister leurs
+  decks : utile après un fix de parsing pour compléter sans doublon (les decks déjà présents
+  ne sont pas re-téléchargés). En CLI : `python scrape_year.py 2022 PREM 3600 --recheck`.
 
 ## Sources externes
 - Visuels, toutes les extensions, prix (EUR Cardmarket) : API publique

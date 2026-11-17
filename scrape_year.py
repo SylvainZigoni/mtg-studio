@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Scraping MTGTop8 pour UNE annee et UN format.
-   Usage : python scrape_year.py <annee> <FORMAT> [secondes_crawl]
+   Usage : python scrape_year.py <annee> <FORMAT> [secondes_crawl] [--recheck]
+   --recheck : remet d'abord les events du couple format/annee a fetched=0 pour re-lister leurs decks
+   (utile apres un fix de parsing : les decks deja presents ne sont ni re-telecharges ni doubles).
    Ex    : python scrape_year.py 2022 PREM 3600
    Anti-doublon : cles primaires (eid, did, did+board+card) + INSERT OR IGNORE / REPLACE,
    relancer ne cree aucun doublon. Ecrit scrape_status.json (lu par GET /api/scrape/status)."""
@@ -11,7 +13,7 @@ STATUS = os.path.join(HERE, "scrape_status.json")
 LOG = os.path.join(HERE, "scrape.log")
 
 sys.path.insert(0, HERE)
-from scraper import FORMATS, YEAR
+from scraper import FORMATS, YEAR, db
 
 def write_status(**kw):
     st = {}
@@ -26,14 +28,16 @@ def write_status(**kw):
         json.dump(st, f, ensure_ascii=False, indent=1)
 
 def main():
-    if len(sys.argv) < 3:
+    recheck = "--recheck" in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if len(args) < 2:
         print(__doc__); sys.exit(2)
     try:
-        year = int(sys.argv[1])
+        year = int(args[0])
     except ValueError:
-        print(f"annee invalide : {sys.argv[1]}"); sys.exit(2)
-    fmt = sys.argv[2].upper()
-    secs = sys.argv[3] if len(sys.argv) > 3 else "3600"
+        print(f"annee invalide : {args[0]}"); sys.exit(2)
+    fmt = args[1].upper()
+    secs = args[2] if len(args) > 2 else "3600"
     if fmt not in FORMATS:
         print(f"format inconnu : {fmt} (attendu : {', '.join(FORMATS)})"); sys.exit(2)
     if not (2000 <= year <= YEAR + 1):
@@ -47,6 +51,15 @@ def main():
                  started=time.strftime("%Y-%m-%d %H:%M:%S"), ended=None, error=None)
     r1 = subprocess.run([sys.executable, os.path.join(HERE, "scraper.py"), "phase1", fmt, str(year)],
                         cwd=HERE, stdout=logf, stderr=logf)
+    if recheck:
+        cc = db()
+        cc.execute("UPDATE events SET fetched=0 WHERE format=? AND event_date LIKE ?", (fmt, str(year) + "%"))
+        cc.commit()
+        n = cc.execute("SELECT COUNT(*) FROM events WHERE format=? AND event_date LIKE ? AND fetched=0",
+                       (fmt, str(year) + "%")).fetchone()[0]
+        cc.close()
+        print(f"recheck: {n} events remis a fetched=0 pour {fmt} {year}", flush=True)
+        write_status(phase=f"recheck : {n} events remis a jour ({fmt} {year})")
     write_status(phase=f"crawl : decks et cartes {fmt} {year}", phase1_rc=r1.returncode)
     r2 = subprocess.run([sys.executable, os.path.join(HERE, "crawl.py"), secs, "all", fmt, str(year)],
                         cwd=HERE, stdout=logf, stderr=logf)

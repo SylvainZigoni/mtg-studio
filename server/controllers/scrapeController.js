@@ -51,14 +51,17 @@ export function apiScrapeOne(req, res) {
   const fmt = String(b.format || '').toUpperCase();
   const year = Math.floor(Number(b.year));
   const seconds = Math.max(60, Math.floor(Number(b.seconds) || 3600));
+  const recheck = !!b.recheck;
   if (!FORMATS_OK.has(fmt)) return sendJson(res, 400, { ok: false, error: 'format invalide' });
   if (!Number.isInteger(year) || year < 2000 || year > new Date().getFullYear() + 1)
     return sendJson(res, 400, { ok: false, error: 'annee invalide' });
   try {
-    const child = spawn('python', ['scrape_year.py', String(year), fmt, String(seconds)], { cwd: ROOT, detached: true, stdio: 'ignore' });
+    const cmd = ['scrape_year.py', String(year), fmt, String(seconds)];
+    if (recheck) cmd.push('--recheck');
+    const child = spawn('python', cmd, { cwd: ROOT, detached: true, stdio: 'ignore' });
     child.on('error', e => console.error(`[scrape/one] erreur : ${e.message}`));
     child.unref();
-    sendJson(res, 200, { ok: true, started: true, year, format: fmt, seconds });
+    sendJson(res, 200, { ok: true, started: true, year, format: fmt, seconds, recheck });
   } catch (e) {
     sendJson(res, 500, { ok: false, error: String(e.message || e) });
   }

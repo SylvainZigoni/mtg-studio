@@ -152,7 +152,7 @@ function vSettings(app){
       for (const y of years) {
         const cell = (grid[code] || {})[String(y)] || { total: 0, fetched: 0 };
         html += cell.fetched > 0
-          ? `<td><button class="grid-ok" data-fmt="${code}" data-year="${y}" title="${cell.fetched}/${cell.total} decks scrapés pour ${esc(name)} ${y} — cliquer relance sans doublon">${cell.fetched}</button></td>`
+          ? `<td><button class="grid-ok" data-fmt="${code}" data-year="${y}" title="${cell.fetched}/${cell.total} decks scrapés pour ${esc(name)} ${y} — cliquer relance en mode recheck (complete sans doublon)">${cell.fetched}</button></td>`
           : `<td><button class="grid-todo" data-fmt="${code}" data-year="${y}" title="Aucun deck scrapé pour ${esc(name)} ${y}">Lancer le scraping</button></td>`;
       }
       html += '</tr>';
@@ -163,7 +163,7 @@ function vSettings(app){
         b.disabled = true;
         try {
           const r = await fetch('/api/scrape/one', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ year: +b.dataset.year, format: b.dataset.fmt, seconds: secs() }) });
+            body: JSON.stringify({ year: +b.dataset.year, format: b.dataset.fmt, seconds: secs(), recheck: true }) });
           const j = await r.json();
           say(j.ok ? `Scraping ${b.dataset.fmt} ${b.dataset.year} lancé ✔` : `Erreur : ${j.error || r.status}`);
         } catch (e) { say('Serveur injoignable.'); }

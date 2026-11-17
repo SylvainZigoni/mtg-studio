@@ -74,9 +74,10 @@ def crawl(seconds, phase=None, fmt=None, year=None):
                               "stars=?, fetched=1 WHERE eid=?",
                               (name, place, iso, players, stars, eid))
                     for rank, did, dname, player in decks:
-                        c.execute("INSERT OR IGNORE INTO decks (did, eid, format, rank, deck_name, player) "
-                                  "VALUES (?,?,?,?,?,?)", (did, eid, f, rank, dname, player))
-                        work.put(("deck", (did, eid, f)))
+                        cur = c.execute("INSERT OR IGNORE INTO decks (did, eid, format, rank, deck_name, player) "
+                                        "VALUES (?,?,?,?,?,?)", (did, eid, f, rank, dname, player))
+                        if cur.rowcount:  # deck nouveau : a crawler ; les existants (fetched=1) sont laisses tels quels
+                            work.put(("deck", (did, eid, f)))
                     c.commit()
             else:
                 did, eid, f = row
