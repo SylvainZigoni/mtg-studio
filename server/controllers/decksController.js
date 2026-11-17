@@ -29,7 +29,7 @@ function buildGzip() {
 /* GET /api/decks — dataset complet ; Content-Encoding: gzip, le navigateur decompresse seul. */
 export function apiDecks(req, res) {
   if (!snapshotAvailable())
-    return sendJson(res, 503, { ok: false, error: 'mtgtop8_2026_snapshot.sqlite absente : lancez le scraping (Parametres).' });
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
   const st = fs.statSync(SNAPSHOT_DB);
   const lm = new Date(st.mtimeMs).toUTCString();
   if (req.headers['if-modified-since'] &&
@@ -51,7 +51,7 @@ export function apiDecks(req, res) {
 /* GET /api/decks/meta — compteurs pour le loader et le panneau de scraping. */
 export function apiDecksMeta(req, res) {
   if (!snapshotAvailable())
-    return sendJson(res, 503, { ok: false, error: 'mtgtop8_2026_snapshot.sqlite absente : lancez le scraping (Parametres).' });
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
   const c = getSnapshotDb();
   const one = (sql, ...args) => {
     try { const r = c.prepare(sql).get(...args); return r ? Object.values(r)[0] : 0; }

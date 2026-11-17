@@ -24,7 +24,7 @@
      GET|POST /api/mkm/settings, POST /api/mkm/* -> proxy signé OAuth Cardmarket
      GET|POST /api/scrape, GET /api/scrape/status -> scraping MTGTop8 année en cours (scrape_run.py : phase1 + crawl)
      POST /api/scrape/one {year,format,seconds}, GET /api/scrape/grid -> scraping ciblé année x format (scrape_year.py) + grille formats x années lue dans la snapshot
-     GET  /api/decks         -> dataset decks depuis mtgtop8_2026_snapshot.sqlite (JSON gzippe, cache mtime)
+     GET  /api/decks         -> dataset decks depuis mtgtop8.sqlite (JSON gzippe, cache mtime)
      GET  /api/decks/meta    -> compteurs (decks/events/cartes/max date, par format)
    ============================================================ */
 import http from 'node:http';

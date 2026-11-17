@@ -6,7 +6,7 @@
 - `server/server.js` : le serveur à lancer (Node >= 22.5, zéro dépendance npm : `node:http` + `node:sqlite`). Sert l'app + enregistre vos données dans SQLite
 - `server/` : routes (`routes/`), contrôleurs (`controllers/`), middlewares (`middleware/`), utilitaires (`utils/`)
 - `index.html` + `css/` + `js/` : l'application (client en modules ES, `css/reset.css` puis `css/app.css`)
-- `mtgtop8_2026_snapshot.sqlite` : base du scraper MTGTop8 (tournois 2026, decks, cartes) ; l'app la lit via `GET /api/decks`, servi par le serveur Node
+- `mtgtop8.sqlite` : base du scraper MTGTop8 (tournois 2026, decks, cartes) ; l'app la lit via `GET /api/decks`, servi par le serveur Node
 - `price_seed.py` : construit/met à jour `prices.db` depuis MTGJSON (reste en Python, appelé aussi par le serveur pour les prix du jour)
 
 ## Lancer l'app (recommandé)
@@ -114,7 +114,7 @@ prix fonctionnent.
 ## Mise à jour des decks
 - La tâche planifiée du lundi 10 h met à jour la base SQLite du scraper.
 - Depuis l'app : Paramètres → panneau « Mise à jour MTGTop8 » → « Lancer le scraping »
-  (`scraper.py phase1` + `crawl.py 3600`, base `mtgtop8_2026_snapshot.sqlite`).
+  (`scraper.py phase1` + `crawl.py 3600`, base `mtgtop8.sqlite`).
   En ligne de commande : `python scraper.py phase1` puis `python crawl.py 3600`.
 - L'appli lit les decks **directement dans la base SQLite** via `GET /api/decks`
   (le serveur construit le JSON depuis la snapshot, le gzippe et le met en cache ;

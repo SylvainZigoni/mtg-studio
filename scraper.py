@@ -3,7 +3,7 @@
 import datetime, os, re, sys, time, sqlite3, urllib.request, gzip
 
 BASE = "https://www.mtgtop8.com/"
-DB = os.environ.get("MTGTOP8_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "mtgtop8_2026_snapshot.sqlite")
+DB = os.environ.get("MTGTOP8_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "mtgtop8.sqlite")
 YEAR = int(datetime.date.today().year)  # année en cours : en 2027, scrappe 2027
 DELAY = 0.12
 FORMATS = {

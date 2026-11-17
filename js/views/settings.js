@@ -42,7 +42,7 @@ function vSettings(app){
   <p class="hint" id="s-info" style="margin-top:8px">Statut : inconnu (enregistrez d'abord vos jetons).</p>
   </div>
   <div class="panel"><h3>Mise à jour MTGTop8 (scraping)</h3>
-  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8_2026_snapshot.sqlite</code>, journal dans <code>scrape.log</code> — l'appli lit les decks directement dans cette base via <code>GET /api/decks</code>. Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
+  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8.sqlite</code>, journal dans <code>scrape.log</code> — l'appli lit les decks directement dans cette base via <code>GET /api/decks</code>. Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
   <div class="row" style="margin-top:10px;flex-wrap:wrap">
     <label>Durée max du crawl (s)<input id="s-scrape-secs" type="number" value="3600" min="60" step="60" style="width:110px"></label>
     <button class="btn" id="s-scrape">🕷️ Lancer le scraping</button>
@@ -131,7 +131,7 @@ function vSettings(app){
       if (j.stats) {
         const s = j.stats;
         const per = s.formats.length ? ' — ' + s.formats.map(f => `${f.name} ${f.decksFetched}/${f.decks}`).join(', ') : '';
-        scrapeInfo.textContent = `Base mtgtop8_2026_snapshot.sqlite : ${s.eventsFetched}/${s.events} tournois · ${s.decksFetched}/${s.decks} decks · ${s.cards} lignes de cartes${per}`;
+        scrapeInfo.textContent = `Base mtgtop8.sqlite : ${s.eventsFetched}/${s.events} tournois · ${s.decksFetched}/${s.decks} decks · ${s.cards} lignes de cartes${per}`;
       } else {
         scrapeInfo.textContent = 'Base de scraping pas encore créée (elle le sera au premier lancement).';
       }

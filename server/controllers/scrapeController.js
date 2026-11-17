@@ -1,5 +1,5 @@
 /* Controleur scraping MTGTop8 : lance scrape_run.py (phase1 + crawl) en arriere-plan
-   et rapporte la progression lue dans scrape_status.json + mtgtop8_2026_snapshot.sqlite. */
+   et rapporte la progression lue dans scrape_status.json + mtgtop8.sqlite. */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import { sendJson } from '../utils/http.js';
 import { ROOT } from '../utils/paths.js';
 
 const STATUS_FILE = path.join(ROOT, 'scrape_status.json');
-const SNAPSHOT_DB = path.join(ROOT, 'mtgtop8_2026_snapshot.sqlite');
+const SNAPSHOT_DB = path.join(ROOT, 'mtgtop8.sqlite');
 
 function readJsonFile(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
