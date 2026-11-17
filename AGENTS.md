@@ -11,7 +11,7 @@ Dossier : `App MTG`, lancée avec `node server/server.js` (ou `npm start`, Node 
 - `decks.json.gz` : 41 366 decks MTGTop8, tournois 2026 (Modern, Legacy, Vintage, Pauper, Premodern, Duel Commander).
 - `prices.db` : historique de prix Cardmarket (SQLite, ~103 935 séries + 120 143 cartes, seed 14/11/2026).
 - `price_seed.py` : construit/met à jour prices.db depuis MTGJSON. Modes : `prices` (re-seed complet), `cards`, `today` (appelé en arrière-plan par le serveur via POST /api/price/today), `weekly` (fusion fenêtre 3 mois, idempotent, auto-réparateur : comble tout trou ≤ 3 mois). Reste en Python (stdlib).
-- `scraper.py` + `crawl.py` : scraper MTGTop8.
+- `scraper.py` + `crawl.py` + `scrape_run.py` + `export_decks.py` : scraper MTGTop8 (export -> decks.json.gz) (DB = `mtgtop8_2026_snapshot.sqlite` a cote, chemins relatifs au dossier). Lancable depuis l'app : POST /api/scrape -> spawn `scrape_run.py` (phase1 + crawl) en arriere-plan, log `scrape.log`, statut `scrape_status.json`, progression via GET /api/scrape/status. Bouton dans la vue Parametres.
 - `mtgtop8_2026_snapshot.sqlite` : base brute des tournois.
 - `README-APP.md` : mode d'emploi (3 niveaux de mise à jour).
 
@@ -19,6 +19,7 @@ Dossier : `App MTG`, lancée avec `node server/server.js` (ou `npm start`, Node 
 
 - MTGJSON AllPrices ne fournit que ~3 mois d'historique → accumulation : point quotidien (today) + fusion weekly qui comble les trous ≤ 3 mois.
 - Endpoints serveur Node (server/routes) : `/api/state` (GET/POST), `/api/health`, `/api/price` (?sfid=/?uuid=/?set=&cn=), `/api/market` (top/flop, fenêtres 1w/1m/1y/3y/5y/10y/rel, scope all|collection, cache 12h, clé cache = scope|w hors limit), `/api/collvalue`, `/api/setvalues` (valeur totale de chaque extension en 1 requête SQL depuis prices.db, cache 12h), `/api/pricerange` (min/max des prix pour la jauge de filtre), `/api/price/today` (GET et POST, spawn `python price_seed.py today` en arrière-plan), `/api/mkm/settings` (GET/POST), `/api/mkm/*` (POST, proxy OAuth 1.0a signé HMAC-SHA1 vers api.cardmarket.com). SYNC_KEYS = mtg_collection/mtg_binders/mtg_matches/mtg_custom_tags/mtg_decks. Fichiers statiques : / -> index.html, Last-Modified + 304, `Cache-Control: no-cache` sur le HTML.
+     `/api/scrape` (POST, lance le scraping) + `/api/scrape/export` (POST, regenere decks.json.gz) + `/api/scrape/status` (GET, progression lue dans la snapshot + etat export + mtime decks.json.gz)
 - Price blobs prices.db : uint32 count puis paires (int32 jour ordinal, float32 prix). `struct.iter_unpack` exige un slice exact `memoryview(blob)[4:4+8*n]`, prix à offset +4 dans l'enregistrement.
 - Parsing JSON streaming (classe Stream dans price_seed.py) : virgules via skip_ws, chaînes/nombres coupés entre buffers, colonnes "set" quoted, fichiers MTGJSON enveloppés dans `data`.
 - Client (js/) : `store.set` (js/core/store.js) ne fait pushState que si window.__booted. Index DECKS : d[3]=nom deck, d[4]=archétype, d[5]=joueur, d[9]=eid, d[10]/d[11]=main/side, d[12]=players. Caches sfCache/print par norm(name).

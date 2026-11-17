@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """MTGTop8 scraper - 2026 events & decks, resumable SQLite back-end."""
-import re, sys, time, sqlite3, urllib.request, gzip
+import os, re, sys, time, sqlite3, urllib.request, gzip
 
 BASE = "https://www.mtgtop8.com/"
-DB = "/root/mtg/mtgtop8.sqlite"
+DB = os.environ.get("MTGTOP8_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "mtgtop8_2026_snapshot.sqlite")
 YEAR = 2026
 DELAY = 0.12
 FORMATS = {
@@ -49,7 +49,7 @@ def db():
 def parse_event_rows(h):
     rows = re.findall(
         r'<td width=70% class=S14><a href=event\?e=(\d+)&f=\w+>([^<]+)</a>\s*'
-        r'(?:@ <a class=und[^>]*>([^<]*)</a>)?[^<]*</td>.*?class=S12>(\d\d/\d\d/\d\d)</td>',
+        r'(?:@ <a class=und[^>]*>([^<]*)</a>)?.*?</td>.*?class=S12>(\d\d/\d\d/\d\d)</td>',
         h, re.S)
     out = []
     for eid, name, place, d in rows:
@@ -92,10 +92,17 @@ def phase1(fmt=None):
             continue
         meta = find_meta_2026(h)
         print(f"{fname}: meta2026={meta}", flush=True)
+        seen, cp = set(), 1
+        for eid, name, place, iso in parse_event_rows(h):  # page principale : section "LAST 20 EVENTS"
+            if eid not in seen:
+                seen.add(eid)
+                if iso.startswith(str(YEAR)):
+                    c.execute("INSERT OR IGNORE INTO events (eid, format, name, place, event_date) VALUES (?,?,?,?,?)",
+                              (eid, f, name, place, iso))
+        c.commit()
         if meta is None:
             continue
         c.execute("INSERT OR REPLACE INTO formats VALUES (?,?,?)", (f, fname, meta))
-        seen, cp = set(), 1
         while True:
             h = get(f"format?f={f}&meta={meta}&cp={cp}")
             if not h:

@@ -40,7 +40,19 @@ function vSettings(app){
     <span id="s-status" class="hint"></span>
   </div>
   <p class="hint" id="s-info" style="margin-top:8px">Statut : inconnu (enregistrez d'abord vos jetons).</p>
-  </div>`;
+  </div>
+  <div class="panel"><h3>Mise à jour MTGTop8 (scraping)</h3>
+  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8_2026_snapshot.sqlite</code>, journal dans <code>scrape.log</code>. Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
+  <div class="row" style="margin-top:10px;flex-wrap:wrap">
+    <label>Durée max du crawl (s)<input id="s-scrape-secs" type="number" value="3600" min="60" step="60" style="width:110px"></label>
+    <button class="btn" id="s-scrape">🕷️ Lancer le scraping</button>
+    <button class="btn ghost" id="s-scrape-refresh">🔄 Rafraîchir</button>
+    <button class="btn ghost" id="s-scrape-export">📦 Régénérer decks.json.gz</button>
+    <span id="s-scrape-status" class="hint"></span>
+  </div>
+  <p class="hint" id="s-scrape-info" style="margin-top:8px"></p>
+  </div>
+`;
   const st = m => { app.querySelector('#s-status').textContent = m; };
   const loadSettings = async () => {
     try{
@@ -106,6 +118,56 @@ function vSettings(app){
   sel.onchange = () => { applyTheme(sel.value); paintSwatches(); st('Thème appliqué ✔'); };
   paintSwatches();
   loadSettings();
+  /* --- Mise à jour MTGTop8 (scraping) --- */
+  const scrapeInfo = app.querySelector('#s-scrape-info');
+  const scrapeSt = app.querySelector('#s-scrape-status');
+  const say = m => { scrapeSt.textContent = m; };
+  let scrapeTimer = null;
+  const refreshScrape = async () => {
+    try {
+      const r = await fetch('/api/scrape/status');
+      const j = await r.json();
+      if (!j.ok) { say('Statut indisponible : ' + (j.error || r.status)); return false; }
+      say(j.running ? `en cours — ${j.phase || ''}` : (j.ended ? `dernier run : ${j.phase} (${j.ended})` : 'jamais lancé'));
+      if (j.stats) {
+        const s = j.stats;
+        const per = s.formats.length ? ' — ' + s.formats.map(f => `${f.name} ${f.decksFetched}/${f.decks}`).join(', ') : '';
+        scrapeInfo.textContent = `Base mtgtop8_2026_snapshot.sqlite : ${s.eventsFetched}/${s.events} tournois · ${s.decksFetched}/${s.decks} decks · ${s.cards} lignes de cartes${per}`;
+      } else {
+        scrapeInfo.textContent = 'Base de scraping pas encore créée (elle le sera au premier lancement).';
+      }
+      if (j.error) scrapeInfo.textContent += ' — erreur : ' + j.error;
+      if (j.decksFile) scrapeInfo.textContent += ` — decks.json.gz du ${j.decksFile.mtime}`;
+      if (j.export && j.export.running) scrapeInfo.textContent += ' — export en cours…';
+      return !!j.running;
+    } catch (e) { say('Serveur injoignable.'); return false; }
+  };
+  const pollScrape = async () => {
+    scrapeTimer = null;
+    if (await refreshScrape()) scrapeTimer = setTimeout(pollScrape, 5000);
+  };
+  app.querySelector('#s-scrape').onclick = async () => {
+    const secs = Math.max(60, Math.floor(Number(app.querySelector('#s-scrape-secs').value) || 3600));
+    say('Lancement…');
+    try {
+      const r = await fetch('/api/scrape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seconds: secs }) });
+      const j = await r.json();
+      say(j.ok ? `Scraping lancé (crawl ${secs}s max) ✔` : `Erreur : ${j.error || r.status}`);
+    } catch (e) { say('Serveur injoignable.'); }
+    if (scrapeTimer) clearTimeout(scrapeTimer);
+    pollScrape();
+  };
+  app.querySelector('#s-scrape-refresh').onclick = () => { if (scrapeTimer) clearTimeout(scrapeTimer); pollScrape(); };
+  app.querySelector('#s-scrape-export').onclick = async () => {
+    say('Export decks.json.gz…');
+    try {
+      const r = await fetch('/api/scrape/export', { method: 'POST' });
+      const j = await r.json();
+      say(j.ok ? 'Export lancé ✔' : `Erreur : ${j.error || r.status}`);
+    } catch (e) { say('Serveur injoignable.'); }
+    pollScrape();
+  };
+  pollScrape();
 }
 async function setVacation(on, st){
   st(on ? 'Activation des vacances…' : 'Désactivation des vacances…');

@@ -114,8 +114,10 @@ prix fonctionnent.
 ## Mise à jour des decks
 - La tâche planifiée du lundi 10 h met à jour la base SQLite du scraper et
   republie `mtgtop8_2026_snapshot.sqlite`.
-- Pour régénérer `decks.json.gz` pour l'app, relancez le script d'export
-  Python (même requête que dans `scraper.py`, sortie JSON compressée gzip).
+- Depuis l'app : Paramètres → panneau « Mise à jour MTGTop8 » → « Lancer le scraping »
+  (scraper.py phase1 + crawl.py, base `mtgtop8_2026_snapshot.sqlite`), puis
+  « Régénérer decks.json.gz » (`export_decks.py`). En ligne de commande :
+  `python scraper.py phase1` puis `python crawl.py 3600` puis `python export_decks.py`.
 
 ## Sources externes
 - Visuels, toutes les extensions, prix (EUR Cardmarket) : API publique

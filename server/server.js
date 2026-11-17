@@ -22,6 +22,7 @@
      GET  /api/collvalue       -> valorisation de la collection
      GET|POST /api/price/today -> lance price_seed.py today en arrière-plan
      GET|POST /api/mkm/settings, POST /api/mkm/* -> proxy signé OAuth Cardmarket
+     GET|POST /api/scrape, GET /api/scrape/status -> scraping MTGTop8 (scrape_run.py : phase1 + crawl)
    ============================================================ */
 import http from 'node:http';
 import { createApp } from './app.js';

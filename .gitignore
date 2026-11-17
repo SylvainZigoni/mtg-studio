@@ -21,5 +21,9 @@ price_cache/
 *.log
 *.tmp
 
+# --- Statuts runtime du scraping MTGTop8 (regeneres a chaque run) ---
+scrape_status.json
+export_status.json
+
 # --- Outils de dev locaux (split app.js -> js/, non versionnés) ---
 .vibe-split/

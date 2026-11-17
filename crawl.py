@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parallel resumable crawler: python3 crawl.py <seconds> [events|decks]"""
-import sys, time, threading, queue, urllib.request, gzip
-sys.path.insert(0, "/root/mtg")
+import os, sys, time, threading, queue, urllib.request, gzip
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scraper import BASE, parse_event_page, parse_deck_page, db
 
 WORKERS = 4
