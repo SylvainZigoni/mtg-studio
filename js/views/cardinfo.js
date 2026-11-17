@@ -3,6 +3,7 @@ import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/st
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
 import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+import { dbPrices, lastPoint } from '../core/pricedb.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
@@ -53,6 +54,8 @@ async function showCardInfo(name, box, ctx){
   }
   if(!c){ try{ c = sfCache[norm(name)] || await sfCardByName(name); }catch(e){} }
   if(!c){ box.innerHTML = `<p class="hint">Carte introuvable sur Scryfall.</p>`; return; }
+  const cp = c.id ? dbPrices(c.id) : null;   // prix prices.db du print affiché
+  const cpN = cp ? (cp[0] ?? cp[1]) : null, cpF = cp ? cp[1] : null;
   const auto = deriveTags(c), custom = getCustomTags(name);
   const have = collection[norm(name)]?.qty || 0;
   const mine = entries.filter(e => e.norm === norm(name));
@@ -63,8 +66,8 @@ async function showCardInfo(name, box, ctx){
       <div style="flex:1">
         <h2>${esc(c.name)}</h2>
         <p class="hint">${esc(c.type_line||'')} · mv ${c.mv} · ${esc(c.set_name||'')} (${esc((c.set||'').toUpperCase())}, ${esc(c.released_at||'')})${c.cn?` · n° ${esc(String(c.cn))}`:''}${c.lang?` · <b>${LANGS[c.lang]||c.lang}</b> (${c.lang.toUpperCase()})`:''}</p>
-        <p style="margin:8px 0"><span class="price" style="color:var(--warn);font-weight:700">${eur(c.eur)}</span>
-        ${c.eur_foil?`<span class="hint"> · foil ${eur(c.eur_foil)}</span>`:''} <span class="pill">(prix Cardmarket via Scryfall)</span></p>
+        <p style="margin:8px 0"><span class="price" style="color:var(--warn);font-weight:700">${cpN!=null?eur(cpN):'—'}</span>
+        ${cpF!=null?`<span class="hint"> · foil ${eur(cpF)}</span>`:''} <span class="pill">(prix Cardmarket via prices.db${lastPoint()?` au ${lastPoint()}`:''})</span></p>
         <div class="qty-ctl"><button id="ci-dec">−</button><b id="ci-q">${have}</b><button id="ci-inc">+</button> <span class="hint">dans ma collection</span></div>
         ${mine.length ? `<p class="hint" style="margin-top:2px">Possédées : ${mine.map(e=>`${e.qty}× ${e.set?esc(e.set.toUpperCase()):'?'} · ${(e.lang||'en').toUpperCase()} · ${e.cond||'NM'}${e.foil?' · ✦':''}${e.signed?' · ✍':''}`).join(' ; ')}</p>` : ''}
         <h4 class="sub">Métadonnées</h4>

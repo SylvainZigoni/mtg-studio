@@ -6,6 +6,14 @@ import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
 import { R, S } from '../core/registry.js';
+import { dbPrices, dbFoil } from '../core/pricedb.js';
+
+/* prix affiché (popup d'ajout) = prices.db via le scryfall_id du print */
+function apPriceTxt(p){
+  const pp = p && p.id ? dbPrices(p.id) : null;
+  const n = pp ? (pp[0] ?? pp[1]) : null, f = pp ? pp[1] : null;
+  return (n != null ? eur(n) : '—') + (f != null ? ` / ✦ ${eur(f)}` : '');
+}
 
 /* ============================================================
    VUE COLLECTION
@@ -502,7 +510,7 @@ async function openEntryEditor(e){
   let curSet = e.set || (prints.find(p => p.lang === (e.lang||'en')) || prints[0]).set;
   let langVal = e.lang || 'en';
   let pool = prints;   // printings de l'édition courante, TOUTES langues (sfSetPrints interroge chaque langue explicitement)
-  const foilOk = p => (p.finishes||[]).includes('foil') || !!p.eur_foil;
+  const foilOk = p => (p.finishes||[]).includes('foil') || dbFoil(p && p.id) != null;
   const curPrint = () => pool.find(p => p.set === curSet && p.lang === langVal)
     || pool.find(p => p.set === curSet) || prints[0];
   openModal(`
@@ -649,7 +657,7 @@ async function openAddPopup(name, preset){
   if(!langList.length) langList = [...new Set(prints.map(x => x.lang).filter(Boolean))];
   if(!langList.length) langList.push('en');
   let langVal = langList.includes('en') ? 'en' : (cur.lang || langList[0]);   // anglais par défaut si dispo
-  const foilOk = p => (p.finishes||[]).includes('foil') || !!p.eur_foil;        // imprimée en foil ou non
+  const foilOk = p => (p.finishes||[]).includes('foil') || dbFoil(p && p.id) != null;        // imprimée en foil ou non (prix foil dans prices.db)
   openModal(`
   <button class="close" id="mclose">✕</button>
   <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
@@ -657,7 +665,7 @@ async function openAddPopup(name, preset){
     <div style="flex:1;min-width:260px">
       <h3 style="margin-bottom:2px">${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h3>
       <p class="hint" id="apsetline">Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span></p>
-      <p id="apprice" style="color:var(--warn);font-weight:700;margin:4px 0">${eur(cur.eur)}${cur.eur_foil?` / ✦ ${eur(cur.eur_foil)}`:''}</p>
+      <p id="apprice" style="color:var(--warn);font-weight:700;margin:4px 0">${apPriceTxt(cur)}</p>
       <div class="row" style="flex-wrap:wrap;gap:10px">
         <label class="row" style="gap:6px"><b>Langue :</b>
           <select id="aplang" title="Langues disponibles pour cette carte dans cette édition">
@@ -687,7 +695,7 @@ async function openAddPopup(name, preset){
       cur = alt;
       $('#apimg').src = cur.image || '';
       $('#apsetline').innerHTML = `Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span>`;
-      $('#apprice').textContent = `${eur(cur.eur)}${cur.eur_foil?` / ✦ ${eur(cur.eur_foil)}`:''}`;
+      $('#apprice').textContent = `${apPriceTxt(cur)}`;
       const ok = foilOk(cur), cb = $('#apfoil');
       cb.disabled = !ok; if(!ok) cb.checked = false;
       $('#apfoilwrap').style.opacity = ok ? 1 : .45;

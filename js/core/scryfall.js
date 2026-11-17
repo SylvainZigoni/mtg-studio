@@ -1,4 +1,5 @@
 import { store } from './store.js';
+import { dbPrice } from './pricedb.js';
 import { norm, LANGS } from './util.js';
 /* ---------------- Scryfall (avec file de requêtes) ---------------- */
 const sfCache = store.get('mtg_sf_cache', {});
@@ -119,10 +120,9 @@ async function printFor(entry){  // l'édition possédée, sinon la plus ancienn
       || prints.find(p => p.set === entry.set)
       || prints[0] || null;
 }
-function entryPrice(entry, print){   // prix de L'édition possédée (foil si foil)
-  if(!print) return null;
-  const v = entry.foil ? (print.eur_foil || print.eur) : (print.eur || print.eur_foil);
-  return parseFloat(v) || null;
+function entryPrice(entry, print){   // prix de L'édition possédée (foil si foil) — lu dans prices.db via le scryfall_id du print
+  if(!print || !print.id) return null;
+  return dbPrice(print.id, entry.foil);
 }
 function setIcon(code){ return SET_ICONS[code] || null; }
 let SET_ICONS = {};   // code -> url svg (rempli par sfSets)

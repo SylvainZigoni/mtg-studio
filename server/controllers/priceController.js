@@ -1,10 +1,12 @@
 /* Contrôleur prix : /api/price, /api/market, /api/collvalue, /api/price/today
    (port fidèle de api_price / api_market / api_collvalue / api_today de server.py) */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getPricesDb, pricesAvailable, blobPoints, blobAt, dayStr, todayOrdinal } from '../utils/pricesDb.js';
 import { loadState } from './stateController.js';
 import { sendJson } from '../utils/http.js';
-import { ROOT } from '../utils/paths.js';
+import { ROOT, PRICES_DB } from '../utils/paths.js';
 
 const MARKET_WINDOWS = { '1w': 7, '1m': 30, '1y': 365, '3y': 1095, '5y': 1825, '10y': 3650, 'rel': null };
 const MARKET_TTL = 12 * 3600;
@@ -194,6 +196,107 @@ export function apiCollvalue(req, res) {
     ok: true, now: round2(nowVal), matched, total,
     past: Object.fromEntries(Object.entries(sums).map(([k, v]) => [k, round2(v)])),
   });
+}
+
+/* GET /api/prices/days — jours historisés dans prices.db : { from, to, n, days:[ordinals] }.
+   from = plus ancien point de toutes les séries, to = aujourd'hui, days = union des jours avec >= 1 prix.
+   Cache memoire invalide par le mtime du fichier. */
+let daysCache = { mtime: -1, result: null };
+export function apiPriceDays(req, res) {
+  if (!pricesAvailable())
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise a jour (Parametres).' });
+  const mtime = fs.statSync(PRICES_DB).mtimeMs;
+  if (daysCache.result && daysCache.mtime === mtime) return sendJson(res, 200, daysCache.result);
+  const c = getPricesDb();
+  const days = new Set();
+  let from = null;
+  for (const r of c.prepare('SELECT normal, foil FROM series').all()) {
+    for (const blob of [r.normal, r.foil]) {
+      if (!blob) continue;
+      const b = Buffer.from(blob);
+      const n = b.readUInt32LE(0);
+      for (let i = 0; i < n; i++) {
+        const d = b.readInt32LE(4 + 8 * i);
+        days.add(d);
+        if (from === null || d < from) from = d;
+      }
+    }
+  }
+  const to = todayOrdinal();
+  const out = { ok: true, from: dayStr(from), to: dayStr(to), n: days.size, days: [...days].sort((a, b) => a - b) };
+  daysCache = { mtime, result: out };
+  sendJson(res, 200, out);
+}
+
+/* GET /api/prices/last — map scryfall_id -> [last_norm, last_foil] : dernier prix connu de chaque carte,
+   lu dans prices.db. Cache memoire invalide par le mtime du fichier (une mise a jour des prix le purge). */
+let lastMapCache = { mtime: -1, result: null };
+export function apiPricesLast(req, res) {
+  if (!pricesAvailable())
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise a jour (Parametres).' });
+  const mtime = fs.statSync(PRICES_DB).mtimeMs;
+  if (lastMapCache.result && lastMapCache.mtime === mtime) return sendJson(res, 200, lastMapCache.result);
+  const c = getPricesDb();
+  const rows = c.prepare('SELECT c.scryfall_id AS id, s.last_norm AS n, s.last_foil AS f FROM cards c JOIN series s ON s.uuid = c.uuid WHERE s.last_norm IS NOT NULL OR s.last_foil IS NOT NULL').all();
+  const map = {};
+  for (const r of rows) {
+    if (!r.id) continue;
+    map[r.id] = [r.n != null ? round2(r.n) : null, r.f != null ? round2(r.f) : null];
+  }
+  const lastOrd = c.prepare('SELECT MAX(CAST(last_date AS INTEGER)) d FROM series').get().d;
+  const out = { ok: true, lastPoint: dayStr(lastOrd), n: Object.keys(map).length, map };
+  lastMapCache = { mtime, result: out };
+  sendJson(res, 200, out);
+}
+
+/* GET /api/price/status — état de prices.db (dernier point, today_done, last_weekly, run en cours, mtime) */
+export function apiPriceStatus(req, res) {
+  if (!pricesAvailable())
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise à jour (Parametres).' });
+  const c = getPricesDb();
+  const meta = {};
+  try { for (const r of c.prepare('SELECT k, v FROM meta').all()) meta[r.k] = r.v; } catch {}
+  const one = s => { try { const r = c.prepare(s).get(); return r ? Object.values(r)[0] : null; } catch { return null; } };
+  const lastOrd = one('SELECT MAX(CAST(last_date AS INTEGER)) d FROM series');
+  sendJson(res, 200, {
+    ok: true,
+    cards: one('SELECT COUNT(*) n FROM cards'),
+    series: one('SELECT COUNT(*) n FROM series'),
+    lastPoint: dayStr(lastOrd),
+    todayDone: meta.today_done || null,
+    lastWeekly: meta.last_weekly || null,
+    run: meta.run || null,
+    mtime: fs.statSync(PRICES_DB).mtime.toLocaleString('sv-SE'),
+  });
+}
+
+/* POST /api/price/seed  body: {mode: today|weekly|prices|cards} — met à jour prices.db depuis MTGJSON */
+export function apiPriceSeed(req, res) {
+  const mode = (req.body && ['today', 'weekly', 'prices', 'cards'].includes(req.body.mode)) ? req.body.mode : 'today';
+  if (!pricesAvailable())
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
+  let run = null;
+  try {
+    const r = getPricesDb().prepare("SELECT v FROM meta WHERE k='run'").get();
+    run = r && r.v;
+  } catch {}
+  if (run) {
+    const m = /pid=(\d+)/.exec(run);
+    const pid = m ? +m[1] : null;
+    let alive = false;
+    if (pid) { try { process.kill(pid, 0); alive = true; } catch {} }
+    if (alive) return sendJson(res, 409, { ok: false, error: `une mise à jour est déjà en cours : ${run}` });
+  }
+  try {
+    const fd = fs.openSync(path.join(ROOT, 'price_seed.log'), 'a');
+    const child = spawn('python', ['price_seed.py', mode], { cwd: ROOT, detached: true, stdio: ['ignore', fd, fd] });
+    child.on('error', e => console.error(`[price/seed] erreur : ${e.message}`));
+    child.unref();
+    fs.closeSync(fd);
+    sendJson(res, 200, { ok: true, started: true, mode });
+  } catch (e) {
+    sendJson(res, 500, { ok: false, error: String(e.message || e) });
+  }
 }
 
 /* Met à jour les prix du jour (AllPricesToday) en tâche de fond via price_seed.py (1×/jour max côté seed) */
