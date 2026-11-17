@@ -8,10 +8,10 @@ mtg_data.db-shm
 prices.db
 prices.db-wal
 prices.db-shm
-# mtgtop8_2026_snapshot.sqlite (123 Mo) : re-scrapé via crawl.py / scraper.py
-mtgtop8_2026_snapshot.sqlite
-mtgtop8_2026_snapshot.sqlite-wal
-mtgtop8_2026_snapshot.sqlite-shm
+# mtgtop8.sqlite (123 Mo) : re-scrapé via crawl.py / scraper.py
+mtgtop8.sqlite
+mtgtop8.sqlite-wal
+mtgtop8.sqlite-shm
 # decks.json.gz (8 Mo) : régénéré par export depuis la snapshot (voir scraper.py)
 decks.json.gz
 
@@ -20,6 +20,11 @@ __pycache__/
 price_cache/
 *.log
 *.tmp
+
+# --- Statut runtime du scraping MTGTop8 (regénéré à chaque run) ---
+scrape_status.json
+check_report.json
+export_status.json
 
 # --- Outils de dev locaux (split app.js -> js/, non versionnés) ---
 .vibe-split/

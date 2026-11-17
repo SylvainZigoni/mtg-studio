@@ -228,3 +228,15 @@ input[type=range]{accent-color:var(--accent)}
 .multisel.open .opts{display:block}
 .multisel .opts label{display:flex;gap:8px;padding:3px 4px;font-size:13px;cursor:pointer}
 .multisel .opts label:hover{background:var(--panel2)}
+
+/* --- tableau scraping formats x annees (Parametres) --- */
+.scrape-grid{border-collapse:collapse;margin-top:12px}
+.scrape-grid th,.scrape-grid td{border:1px solid var(--border);padding:4px;text-align:center;font-size:12px}
+.scrape-grid td:first-child{text-align:left;font-weight:600;white-space:nowrap}
+.scrape-grid button{min-width:96px;padding:5px 8px;border-radius:8px;border:none;cursor:pointer;font-size:12px;color:#fff}
+.scrape-grid button.grid-ok{background:var(--ok,#3ecf6f)}
+.scrape-grid button.grid-todo{background:var(--bad,#ff5b6a)}
+.scrape-grid button.grid-todo:hover{filter:brightness(1.15)}
+.scrape-grid button:disabled{opacity:.6;cursor:wait}
+
+#topbar h1 .logo{width:22px;height:22px;vertical-align:-4px;margin-right:7px;color:var(--accent)}

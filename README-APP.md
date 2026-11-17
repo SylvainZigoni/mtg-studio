@@ -6,7 +6,7 @@
 - `server/server.js` : le serveur à lancer (Node >= 22.5, zéro dépendance npm : `node:http` + `node:sqlite`). Sert l'app + enregistre vos données dans SQLite
 - `server/` : routes (`routes/`), contrôleurs (`controllers/`), middlewares (`middleware/`), utilitaires (`utils/`)
 - `index.html` + `css/` + `js/` : l'application (client en modules ES, `css/reset.css` puis `css/app.css`)
-- `decks.json.gz` : 41 366 decks scrappés sur MTGTop8, tournois 2026 (Modern, Legacy, Vintage, Pauper, Premodern, Duel Commander)
+- `mtgtop8.sqlite` : base du scraper MTGTop8 (tournois 2026, decks, cartes) ; l'app la lit via `GET /api/decks`, servi par le serveur Node
 - `price_seed.py` : construit/met à jour `prices.db` depuis MTGJSON (reste en Python, appelé aussi par le serveur pour les prix du jour)
 
 ## Lancer l'app (recommandé)
@@ -112,10 +112,25 @@ prix fonctionnent.
 - `prices.db` : historique de prix compact (binaire) ; sauvegardez-le.
 
 ## Mise à jour des decks
-- La tâche planifiée du lundi 10 h met à jour la base SQLite du scraper et
-  republie `mtgtop8_2026_snapshot.sqlite`.
-- Pour régénérer `decks.json.gz` pour l'app, relancez le script d'export
-  Python (même requête que dans `scraper.py`, sortie JSON compressée gzip).
+- La tâche planifiée du lundi 10 h met à jour la base SQLite du scraper.
+- Depuis l'app : Paramètres → panneau « Mise à jour MTGTop8 » → « Lancer le scraping »
+  (`scraper.py phase1` + `crawl.py 3600`, base `mtgtop8.sqlite`).
+  En ligne de commande : `python scraper.py phase1` puis `python crawl.py 3600`.
+- L'appli lit les decks **directement dans la base SQLite** via `GET /api/decks`
+  (le serveur construit le JSON depuis la snapshot, le gzippe et le met en cache ;
+  le cache est invalidé automatiquement quand la base change). Rechargez ensuite
+  la page (Ctrl+F5).
+- **Contrôle d'exhaustivité** (outil de dev, non publié dans le client) :
+  `python check_scrape.py [FORMAT] [ANNEE] [--decks] [--max-events N]` compare le site
+  à `mtgtop8.sqlite` (events, puis decks did par did avec `--decks`) et écrit
+  `check_report.json`. Ex : `python check_scrape.py PREM 2022 --decks`.
+- Le panneau affiche aussi un **tableau formats x années** (année en cours + 4
+  précédentes, générées automatiquement) : case verte avec le nombre de decks
+  scrapés (lu dans la base via `GET /api/scrape/grid`), ou rouge « Lancer le
+  scraping » qui lance `python scrape_year.py <année> <FORMAT> <s> --recheck` pour cette case.
+  Le mode `--recheck` remet d'abord les events du couple à `fetched=0` pour re-lister leurs
+  decks : utile après un fix de parsing pour compléter sans doublon (les decks déjà présents
+  ne sont pas re-téléchargés). En CLI : `python scrape_year.py 2022 PREM 3600 --recheck`.
 
 ## Sources externes
 - Visuels, toutes les extensions, prix (EUR Cardmarket) : API publique

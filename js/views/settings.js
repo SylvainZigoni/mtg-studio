@@ -40,7 +40,18 @@ function vSettings(app){
     <span id="s-status" class="hint"></span>
   </div>
   <p class="hint" id="s-info" style="margin-top:8px">Statut : inconnu (enregistrez d'abord vos jetons).</p>
-  </div>`;
+  </div>
+  <div class="panel"><h3>Mise à jour MTGTop8 (scraping)</h3>
+  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8.sqlite</code>, journal dans <code>scrape.log</code> — l'appli lit les decks directement dans cette base via <code>GET /api/decks</code>. Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
+  <div class="row" style="margin-top:10px;flex-wrap:wrap">
+    <label>Durée max du crawl (s)<input id="s-scrape-secs" type="number" value="3600" min="60" step="60" style="width:110px"></label>
+    <button class="btn" id="s-scrape">🕷️ Lancer le scraping</button>
+    <span id="s-scrape-status" class="hint"></span>
+  </div>
+  <p class="hint" id="s-scrape-info" style="margin-top:8px"></p>
+  <div id="s-scrape-grid"></div>
+  </div>
+`;
   const st = m => { app.querySelector('#s-status').textContent = m; };
   const loadSettings = async () => {
     try{
@@ -106,6 +117,79 @@ function vSettings(app){
   sel.onchange = () => { applyTheme(sel.value); paintSwatches(); st('Thème appliqué ✔'); };
   paintSwatches();
   loadSettings();
+  /* --- Mise à jour MTGTop8 (scraping) --- */
+  const scrapeInfo = app.querySelector('#s-scrape-info');
+  const scrapeSt = app.querySelector('#s-scrape-status');
+  const say = m => { scrapeSt.textContent = m; };
+  let scrapeTimer = null;
+  const refreshScrape = async () => {
+    try {
+      const r = await fetch('/api/scrape/status');
+      const j = await r.json();
+      if (!j.ok) { say('Statut indisponible : ' + (j.error || r.status)); return false; }
+      say(j.running ? `en cours — ${j.phase || ''}` : (j.ended ? `dernier run : ${j.phase} (${j.ended})` : 'jamais lancé'));
+      if (j.stats) {
+        const s = j.stats;
+        const per = s.formats.length ? ' — ' + s.formats.map(f => `${f.name} ${f.decksFetched}/${f.decks}`).join(', ') : '';
+        scrapeInfo.textContent = `Base mtgtop8.sqlite : ${s.eventsFetched}/${s.events} tournois · ${s.decksFetched}/${s.decks} decks · ${s.cards} lignes de cartes${per}`;
+      } else {
+        scrapeInfo.textContent = 'Base de scraping pas encore créée (elle le sera au premier lancement).';
+      }
+      if (j.error) scrapeInfo.textContent += ' — erreur : ' + j.error;
+      return !!j.running;
+    } catch (e) { say('Serveur injoignable.'); return false; }
+  };
+  const gridEl = app.querySelector('#s-scrape-grid');
+  const loadGrid = async () => {
+    const cy = new Date().getFullYear();
+    const years = []; for (let y = cy; y >= cy - 4; y--) years.push(y);  // en 2027, la colonne 2027 apparait toute seule
+    let grid = {};
+    try { const r = await fetch('/api/scrape/grid'); const j = await r.json(); if (j.ok) grid = j.grid || {}; } catch (e) {}
+    const secs = () => Math.max(60, Math.floor(Number(app.querySelector('#s-scrape-secs').value) || 3600));
+    let html = `<table class="scrape-grid"><thead><tr><th>Format / année</th>${years.map(y => `<th>${y}</th>`).join('')}</tr></thead><tbody>`;
+    for (const [code, name] of Object.entries(FMT_NAMES)) {
+      html += `<tr><td>${esc(name)}</td>`;
+      for (const y of years) {
+        const cell = (grid[code] || {})[String(y)] || { total: 0, fetched: 0 };
+        html += cell.fetched > 0
+          ? `<td><button class="grid-ok" data-fmt="${code}" data-year="${y}" title="${cell.fetched}/${cell.total} decks scrapés pour ${esc(name)} ${y} — cliquer relance en mode recheck (complete sans doublon)">${cell.fetched}</button></td>`
+          : `<td><button class="grid-todo" data-fmt="${code}" data-year="${y}" title="Aucun deck scrapé pour ${esc(name)} ${y}">Lancer le scraping</button></td>`;
+      }
+      html += '</tr>';
+    }
+    gridEl.innerHTML = html + '</tbody></table>';
+    gridEl.querySelectorAll('button').forEach(b => {
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const r = await fetch('/api/scrape/one', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year: +b.dataset.year, format: b.dataset.fmt, seconds: secs(), recheck: true }) });
+          const j = await r.json();
+          say(j.ok ? `Scraping ${b.dataset.fmt} ${b.dataset.year} lancé ✔` : `Erreur : ${j.error || r.status}`);
+        } catch (e) { say('Serveur injoignable.'); }
+        if (scrapeTimer) clearTimeout(scrapeTimer);
+        pollScrape();
+      };
+    });
+  };
+  const pollScrape = async () => {
+    scrapeTimer = null;
+    const running = await refreshScrape();
+    await loadGrid();
+    if (running) scrapeTimer = setTimeout(pollScrape, 5000);
+  };
+  app.querySelector('#s-scrape').onclick = async () => {
+    const secs = Math.max(60, Math.floor(Number(app.querySelector('#s-scrape-secs').value) || 3600));
+    say('Lancement…');
+    try {
+      const r = await fetch('/api/scrape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seconds: secs }) });
+      const j = await r.json();
+      say(j.ok ? `Scraping lancé (crawl ${secs}s max) ✔` : `Erreur : ${j.error || r.status}`);
+    } catch (e) { say('Serveur injoignable.'); }
+    if (scrapeTimer) clearTimeout(scrapeTimer);
+    pollScrape();
+  };
+  pollScrape();
 }
 async function setVacation(on, st){
   st(on ? 'Activation des vacances…' : 'Désactivation des vacances…');

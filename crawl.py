@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parallel resumable crawler: python3 crawl.py <seconds> [events|decks]"""
-import sys, time, threading, queue, urllib.request, gzip
-sys.path.insert(0, "/root/mtg")
+import os, sys, time, threading, queue, urllib.request, gzip
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scraper import BASE, parse_event_page, parse_deck_page, db
 
 WORKERS = 4
@@ -26,14 +26,21 @@ def get(url):
                 return None
             time.sleep(1.5 + attempt)
 
-def crawl(seconds, phase=None):
+def crawl(seconds, phase=None, fmt=None, year=None):
     c = db()
     c.execute("PRAGMA journal_mode=WAL")
     end = time.time() + seconds
     lock = threading.Lock()
-    pend_events = [r for r in c.execute("SELECT eid, format FROM events WHERE fetched=0 ORDER BY eid")]
-    pend_decks = [] if phase == "events" else \
-        [r for r in c.execute("SELECT did, eid, format FROM decks WHERE fetched=0 ORDER BY did")]
+    ev_q = "SELECT eid, format FROM events WHERE fetched=0"
+    dk_q = "SELECT d.did, d.eid, d.format FROM decks d JOIN events e ON e.eid=d.eid WHERE d.fetched=0"
+    args = []
+    if fmt:
+        ev_q += " AND format=?"; dk_q += " AND d.format=?"; args.append(fmt)
+    if year:
+        ev_q += " AND event_date LIKE ?"; dk_q += " AND e.event_date LIKE ?"; args.append(str(year) + "%")
+    ev_q += " ORDER BY eid"; dk_q += " ORDER BY d.did"
+    pend_events = [r for r in c.execute(ev_q, args)]
+    pend_decks = [] if phase == "events" else [r for r in c.execute(dk_q, args)]
     work = queue.Queue()
     for row in pend_events:
         work.put(("event", row))
@@ -67,9 +74,10 @@ def crawl(seconds, phase=None):
                               "stars=?, fetched=1 WHERE eid=?",
                               (name, place, iso, players, stars, eid))
                     for rank, did, dname, player in decks:
-                        c.execute("INSERT OR IGNORE INTO decks (did, eid, format, rank, deck_name, player) "
-                                  "VALUES (?,?,?,?,?,?)", (did, eid, f, rank, dname, player))
-                        work.put(("deck", (did, eid, f)))
+                        cur = c.execute("INSERT OR IGNORE INTO decks (did, eid, format, rank, deck_name, player) "
+                                        "VALUES (?,?,?,?,?,?)", (did, eid, f, rank, dname, player))
+                        if cur.rowcount:  # deck nouveau : a crawler ; les existants (fetched=1) sont laisses tels quels
+                            work.put(("deck", (did, eid, f)))
                     c.commit()
             else:
                 did, eid, f = row
@@ -101,6 +109,8 @@ def crawl(seconds, phase=None):
 
 if __name__ == "__main__":
     secs = int(sys.argv[1]) if len(sys.argv) > 1 else 250
-    crawl(secs, sys.argv[2] if len(sys.argv) > 2 else None)
+    crawl(secs, sys.argv[2] if len(sys.argv) > 2 else None,
+          sys.argv[3] if len(sys.argv) > 3 else None,
+          sys.argv[4] if len(sys.argv) > 4 else None)
 
 # version 2026-11-14b

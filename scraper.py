@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """MTGTop8 scraper - 2026 events & decks, resumable SQLite back-end."""
-import re, sys, time, sqlite3, urllib.request, gzip
+import datetime, os, re, sys, time, sqlite3, urllib.request, gzip
 
 BASE = "https://www.mtgtop8.com/"
-DB = "/root/mtg/mtgtop8.sqlite"
-YEAR = 2026
+DB = os.environ.get("MTGTOP8_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "mtgtop8.sqlite")
+YEAR = int(datetime.date.today().year)  # année en cours : en 2027, scrappe 2027
 DELAY = 0.12
 FORMATS = {
     "MO": "Modern", "LE": "Legacy", "VI": "Vintage", "PAU": "Pauper",
@@ -49,7 +49,7 @@ def db():
 def parse_event_rows(h):
     rows = re.findall(
         r'<td width=70% class=S14><a href=event\?e=(\d+)&f=\w+>([^<]+)</a>\s*'
-        r'(?:@ <a class=und[^>]*>([^<]*)</a>)?[^<]*</td>.*?class=S12>(\d\d/\d\d/\d\d)</td>',
+        r'(?:@ <a class=und[^>]*>([^<]*)</a>)?.*?</td>.*?class=S12>(\d\d/\d\d/\d\d)</td>',
         h, re.S)
     out = []
     for eid, name, place, d in rows:
@@ -57,8 +57,8 @@ def parse_event_rows(h):
         out.append((int(eid), name.strip(), (place or "").strip(), f"20{yy}-{mm}-{dd}"))
     return out
 
-def find_meta_2026(h):
-    m = re.search(rf'f=\w+&meta=(\d+)&a?="?><div[^>]*>All {YEAR} Decks', h)
+def find_meta_year(h, year):
+    m = re.search(rf'f=\w+&meta=(\d+)&a?="?><div[^>]*>All {year} Decks', h)
     return int(m.group(1)) if m else None
 
 def parse_event_page(h):
@@ -69,9 +69,9 @@ def parse_event_page(h):
     iso = f"20{m.group(4)}-{m.group(3)}-{m.group(2)}" if m else None
     stars = len(re.findall(r'<img src=/graph/star\.png>', h))
     decks = re.findall(
-        r'align=center class=S14>(\d+)</div>.*?href=\?e=\d+&d=(\d+)&f=\w+>([^<]+)</a>\s*</div>.*?'
-        r'class=player href=search\?player=[^>]*>([^<]+)</a>', h, re.S)
-    return name, place, iso, players, stars, [(int(r), int(d), n.strip(), p.strip()) for r, d, n, p in decks]
+        r'align=center class=S14>([\d\-]+)</div>.*?href=\?e=\d+&d=(\d+)&f=\w+>[^<]*(?:<img[^>]*>)?</a>.*?'
+        r'href=\?e=\d+&d=\d+&f=\w+>([^<]+)</a>.*?class=player href=search\?player=[^>]*>([^<]+)</a>', h, re.S)
+    return name, place, iso, players, stars, [(int(r.split('-')[0]), int(d), n.strip(), p.strip()) for r, d, n, p in decks]
 
 def parse_deck_page(h):
     a = re.search(r'archetype\?a=\d+>([^<]+) decks', h)
@@ -82,7 +82,8 @@ def parse_deck_page(h):
         (md if board == "md" else sb).append((card.strip(), int(qty)))
     return arch, md, sb
 
-def phase1(fmt=None):
+def phase1(fmt=None, year=None):
+    year = year or YEAR
     c = db()
     for f, fname in FORMATS.items():
         if fmt and f != fmt:
@@ -90,12 +91,19 @@ def phase1(fmt=None):
         h = get(f"format?f={f}")
         if not h:
             continue
-        meta = find_meta_2026(h)
-        print(f"{fname}: meta2026={meta}", flush=True)
+        meta = find_meta_year(h, year)
+        print(f"{fname} {year}: meta={meta}", flush=True)
+        seen, cp = set(), 1
+        for eid, name, place, iso in parse_event_rows(h):  # page principale : section "LAST 20 EVENTS"
+            if eid not in seen:
+                seen.add(eid)
+                if iso.startswith(str(year)):
+                    c.execute("INSERT OR IGNORE INTO events (eid, format, name, place, event_date) VALUES (?,?,?,?,?)",
+                              (eid, f, name, place, iso))
+        c.commit()
         if meta is None:
             continue
         c.execute("INSERT OR REPLACE INTO formats VALUES (?,?,?)", (f, fname, meta))
-        seen, cp = set(), 1
         while True:
             h = get(f"format?f={f}&meta={meta}&cp={cp}")
             if not h:
@@ -104,7 +112,7 @@ def phase1(fmt=None):
             for eid, name, place, iso in parse_event_rows(h):
                 if eid not in seen:
                     seen.add(eid); new += 1
-                    if iso.startswith(str(YEAR)):
+                    if iso.startswith(str(year)):
                         c.execute("INSERT OR IGNORE INTO events (eid, format, name, place, event_date) VALUES (?,?,?,?,?)",
                                   (eid, f, name, place, iso))
             c.commit()
@@ -132,7 +140,8 @@ def status():
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     if cmd == "phase1":
-        phase1(sys.argv[2] if len(sys.argv) > 2 else None)
+        phase1(sys.argv[2] if len(sys.argv) > 2 else None,
+               int(sys.argv[3]) if len(sys.argv) > 3 else None)
     else:
         status()
 
