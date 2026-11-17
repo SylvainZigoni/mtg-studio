@@ -46,7 +46,6 @@ function vSettings(app){
   <div class="row" style="margin-top:10px;flex-wrap:wrap">
     <label>Durée max du crawl (s)<input id="s-scrape-secs" type="number" value="3600" min="60" step="60" style="width:110px"></label>
     <button class="btn" id="s-scrape">🕷️ Lancer le scraping</button>
-    <button class="btn ghost" id="s-scrape-refresh">🔄 Rafraîchir</button>
     <span id="s-scrape-status" class="hint"></span>
   </div>
   <p class="hint" id="s-scrape-info" style="margin-top:8px"></p>
@@ -154,7 +153,6 @@ function vSettings(app){
     if (scrapeTimer) clearTimeout(scrapeTimer);
     pollScrape();
   };
-  app.querySelector('#s-scrape-refresh').onclick = () => { if (scrapeTimer) clearTimeout(scrapeTimer); pollScrape(); };
   pollScrape();
 }
 async function setVacation(on, st){
