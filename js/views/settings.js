@@ -42,12 +42,11 @@ function vSettings(app){
   <p class="hint" id="s-info" style="margin-top:8px">Statut : inconnu (enregistrez d'abord vos jetons).</p>
   </div>
   <div class="panel"><h3>Mise à jour MTGTop8 (scraping)</h3>
-  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8_2026_snapshot.sqlite</code>, journal dans <code>scrape.log</code>. Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
+  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8_2026_snapshot.sqlite</code>, journal dans <code>scrape.log</code> — l'appli lit les decks directement dans cette base via <code>GET /api/decks</code>. Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
   <div class="row" style="margin-top:10px;flex-wrap:wrap">
     <label>Durée max du crawl (s)<input id="s-scrape-secs" type="number" value="3600" min="60" step="60" style="width:110px"></label>
     <button class="btn" id="s-scrape">🕷️ Lancer le scraping</button>
     <button class="btn ghost" id="s-scrape-refresh">🔄 Rafraîchir</button>
-    <button class="btn ghost" id="s-scrape-export">📦 Régénérer decks.json.gz</button>
     <span id="s-scrape-status" class="hint"></span>
   </div>
   <p class="hint" id="s-scrape-info" style="margin-top:8px"></p>
@@ -137,8 +136,6 @@ function vSettings(app){
         scrapeInfo.textContent = 'Base de scraping pas encore créée (elle le sera au premier lancement).';
       }
       if (j.error) scrapeInfo.textContent += ' — erreur : ' + j.error;
-      if (j.decksFile) scrapeInfo.textContent += ` — decks.json.gz du ${j.decksFile.mtime}`;
-      if (j.export && j.export.running) scrapeInfo.textContent += ' — export en cours…';
       return !!j.running;
     } catch (e) { say('Serveur injoignable.'); return false; }
   };
@@ -158,15 +155,6 @@ function vSettings(app){
     pollScrape();
   };
   app.querySelector('#s-scrape-refresh').onclick = () => { if (scrapeTimer) clearTimeout(scrapeTimer); pollScrape(); };
-  app.querySelector('#s-scrape-export').onclick = async () => {
-    say('Export decks.json.gz…');
-    try {
-      const r = await fetch('/api/scrape/export', { method: 'POST' });
-      const j = await r.json();
-      say(j.ok ? 'Export lancé ✔' : `Erreur : ${j.error || r.status}`);
-    } catch (e) { say('Serveur injoignable.'); }
-    pollScrape();
-  };
   pollScrape();
 }
 async function setVacation(on, st){

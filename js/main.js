@@ -121,7 +121,16 @@ if(!$('#sidebar') || !$('#burger')){
 R.setView = setView;
 window.__booted = true;
 
-pullState().then(loadData);
+pullState().then(async () => {
+  try{
+    const m = await (await fetch('/api/decks/meta')).json();
+    if(m.ok){
+      const el = document.getElementById('loadmsg');
+      if(el) el.textContent = `Chargement des ${m.decks} decks 2026 depuis la base SQLite…`;
+    }
+  }catch(e){}
+  loadData();
+});
 // mise à jour quotidienne des prix (AllPricesToday → prices.db), 1×/jour côté serveur
 fetch('/api/price/today', {method:'POST'}).catch(() => {});
 

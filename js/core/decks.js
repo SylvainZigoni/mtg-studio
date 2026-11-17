@@ -25,13 +25,8 @@ function buildEvents(){
 async function loadData(){
   let txt = null;
   try{
-    const r = await fetch('decks.json.gz');
-    if(r.ok){
-      const blob = await r.blob();
-      txt = 'DecompressionStream' in window
-        ? await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text()
-        : await r.text();
-    }
+    const r = await fetch('/api/decks');   // dataset servi depuis la snapshot SQLite (Content-Encoding: gzip)
+    if(r.ok) txt = await r.text();          // le navigateur decompresse tout seul
   }catch(e){}
   if(!txt){ try{ const r2 = await fetch('decks.json'); if(r2.ok) txt = await r2.text(); }catch(e){} }
   if(txt){
@@ -41,7 +36,7 @@ async function loadData(){
     render();
     return;
   }
-  $('#loadmsg').textContent = 'Impossible de charger decks.json (page ouverte hors serveur ?). Lancez "python3 -m http.server" dans le dossier, ou choisissez le fichier.';
+  $('#loadmsg').textContent = 'Impossible de charger les decks (GET /api/decks) : lancez le serveur Node et le scraping MTGTop8, ou choisissez un fichier decks.json.';
   $('#pickbtn').style.display='block';
   $('#pickbtn').onclick = () => $('#filepick').click();
   $('#filepick').onchange = e => {

@@ -21,7 +21,7 @@ price_cache/
 *.log
 *.tmp
 
-# --- Statuts runtime du scraping MTGTop8 (regeneres a chaque run) ---
+# --- Statut runtime du scraping MTGTop8 (regénéré à chaque run) ---
 scrape_status.json
 export_status.json
 

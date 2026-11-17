@@ -9,8 +9,6 @@ import { ROOT } from '../utils/paths.js';
 
 const STATUS_FILE = path.join(ROOT, 'scrape_status.json');
 const SNAPSHOT_DB = path.join(ROOT, 'mtgtop8_2026_snapshot.sqlite');
-const EXPORT_STATUS = path.join(ROOT, 'export_status.json');
-const DECKS_GZ = path.join(ROOT, 'decks.json.gz');
 
 function readJsonFile(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
@@ -37,21 +35,6 @@ export function apiScrapeStart(req, res) {
     child.on('error', e => console.error(`[scrape] erreur : ${e.message}`));
     child.unref();
     sendJson(res, 200, { ok: true, started: true, seconds });
-  } catch (e) {
-    sendJson(res, 500, { ok: false, error: String(e.message || e) });
-  }
-}
-
-/* POST /api/scrape/export — regenere decks.json.gz depuis la snapshot (export_decks.py) */
-export function apiScrapeExport(req, res) {
-  const st = readJsonFile(EXPORT_STATUS, { running: false });
-  if (st.running && pidAlive(st.pid))
-    return sendJson(res, 409, { ok: false, error: `un export est deja en cours (pid ${st.pid})` });
-  try {
-    const child = spawn('python', ['export_decks.py'], { cwd: ROOT, detached: true, stdio: 'ignore' });
-    child.on('error', e => console.error(`[scrape/export] erreur : ${e.message}`));
-    child.unref();
-    sendJson(res, 200, { ok: true, started: true });
   } catch (e) {
     sendJson(res, 500, { ok: false, error: String(e.message || e) });
   }
@@ -104,7 +87,5 @@ export function apiScrapeStatus(req, res) {
     error: st.error || null,
     pid: st.pid || null,
     stats: snapshotStats(),
-    export: (() => { const e = readJsonFile(EXPORT_STATUS, {}); return { running: !!(e.running && pidAlive(e.pid)), started: e.started || null, ended: e.ended || null, n: e.n != null ? e.n : null, error: e.error || null }; })(),
-    decksFile: fs.existsSync(DECKS_GZ) ? (() => { const s = fs.statSync(DECKS_GZ); return { size: s.size, mtime: s.mtime.toLocaleString('sv-SE') }; })() : null,
   });
 }

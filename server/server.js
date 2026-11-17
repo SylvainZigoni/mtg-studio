@@ -3,7 +3,7 @@
    MTG Studio — serveur de données (version 2026-11-16b, phase 2)
    ============================================================
    Serveur Node.js ZÉRO DÉPENDANCE (node:http + node:sqlite, Node >= 22.5).
-   Sert l'app (index.html, css/, js/, decks.json.gz) ET enregistre les saisies
+   Sert l'app (index.html, css/, js/) ET enregistre les saisies
    (collection, classeurs, matchs, tags, decks perso, réglages Cardmarket)
    dans mtg_data.db (SQLite, à côté). Les prix sont lus dans prices.db
    (généré/maintenu par price_seed.py, resté en Python).
@@ -23,6 +23,8 @@
      GET|POST /api/price/today -> lance price_seed.py today en arrière-plan
      GET|POST /api/mkm/settings, POST /api/mkm/* -> proxy signé OAuth Cardmarket
      GET|POST /api/scrape, GET /api/scrape/status -> scraping MTGTop8 (scrape_run.py : phase1 + crawl)
+     GET  /api/decks         -> dataset decks depuis mtgtop8_2026_snapshot.sqlite (JSON gzippe, cache mtime)
+     GET  /api/decks/meta    -> compteurs (decks/events/cartes/max date, par format)
    ============================================================ */
 import http from 'node:http';
 import { createApp } from './app.js';
