@@ -18,8 +18,10 @@ const pct = (cur, old) => (old && cur) ? (cur / old - 1) : null;
 function collectionEntries() {
   const st = loadState()['mtg_collection'];
   try {
-    const entries = typeof st === 'string' ? JSON.parse(st) : st;
-    return Array.isArray(entries) ? entries : [];
+    const parsed = typeof st === 'string' ? JSON.parse(st) : st;
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && Array.isArray(parsed.entries)) return parsed.entries;   // forme { v, entries: [...] }
+    return [];
   } catch {
     return [];
   }
@@ -27,7 +29,7 @@ function collectionEntries() {
 
 function seriesFor(c, setCode, cn) {
   if (!setCode || cn == null) return null;
-  const row = c.prepare('SELECT uuid FROM cards WHERE "set"=? AND cn=?').get(setCode, String(cn));
+  const row = c.prepare('SELECT uuid FROM cards WHERE "set"=? AND cn=?').get(String(setCode).toUpperCase(), String(cn));
   if (!row) return null;
   return c.prepare('SELECT normal, foil, last_norm, last_foil, last_date, released_at, scryfall_id ' +
     'FROM series JOIN cards ON cards.uuid=series.uuid WHERE cards.uuid=?').get(row.uuid);
@@ -127,6 +129,135 @@ export function apiMarket(req, res) {
   sendJson(res, 200, out);
 }
 
+/* GET /api/market/cards — vue "cartes" du Marché : filtres + TRI GLOBAL + pagination sur prices.db.
+   ?from=&to= (ordinals) &name=&artist=&colors=W,U&types=&cmc=&set=&reserved=1&scope=all|collection
+   &sort=name|set|rarity|was|now|pct &dir=asc|desc &page=1 &limit=25
+   -> { ok, from, to, total, page, pages, kpi, hist, index:[[date,val]], rows:[{...,spark}] }
+   Les cartes sans prix à "from" sont triées en dernier. Cache 12h par requête (max 8 entrées). */
+const marketCardsCache = new Map();
+const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, special: 3, mythic: 4, bonus: 5 };
+export function apiMarketCards(req, res) {
+  if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
+  const q = req.query;
+  const from = parseInt(q.from, 10) || 0;
+  const to = Math.max(from, parseInt(q.to, 10) || todayOrdinal());
+  if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
+  const key = JSON.stringify({ ...q, from, to });
+  const nowS = Date.now() / 1000;
+  const hit = marketCardsCache.get(key);
+  if (hit && nowS - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
+  if (marketCardsCache.size > 8) marketCardsCache.delete(marketCardsCache.keys().next().value);
+
+  const c = getPricesDb();
+  const where = ['(s.last_norm IS NOT NULL OR s.last_foil IS NOT NULL)'];
+  const args = [];
+  const name = String(q.name || '').trim().toLowerCase();
+  if (name) { where.push('LOWER(c.name) LIKE ?'); args.push('%' + name + '%'); }
+  const artist = String(q.artist || '').trim().toLowerCase();
+  if (artist) { where.push('LOWER(c.artist) LIKE ?'); args.push('%' + artist + '%'); }
+  if (q.set) { where.push('c."set" = ?'); args.push(String(q.set).toUpperCase()); }
+  if (String(q.reserved) === '1' || String(q.reserved) === 'true') where.push('c.reserved = 1');
+  for (const col of String(q.colors || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean)) {
+    where.push('c.colors LIKE ?'); args.push('%,' + col + ',%');
+  }
+  const types = String(q.types || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (types.length) {
+    where.push('(' + types.map(() => 'LOWER(c.type_line) LIKE ?').join(' OR ') + ')');
+    args.push(...types.map(t => '%' + t + '%'));
+  }
+  if (q.cmc !== undefined && q.cmc !== '') {
+    if (String(q.cmc) === '7+') where.push('c.cmc >= 7');
+    else { where.push('c.cmc = ?'); args.push(parseFloat(q.cmc)); }
+  }
+  if ((q.scope || 'all') === 'collection') {
+    const keys = collectionEntries().map(e => (e.set || '').toUpperCase() + '|' + (e.cn != null ? String(e.cn) : '')).filter(s => s !== '|');
+    if (keys.length) { where.push(`(c."set" || '|' || c.cn) IN (${keys.map(() => '?').join(',')})`); args.push(...keys); }
+    else where.push('0');
+  }
+  const sql = `WITH picked AS (
+      SELECT LOWER(name) AS lname, "set" AS st, cn,
+             COALESCE(MIN(CASE WHEN lang='English' THEN scryfall_id END), MIN(scryfall_id)) AS sfid
+      FROM cards GROUP BY LOWER(name), "set", cn)
+    SELECT c.scryfall_id, c.name, c."set", c.cn, c.rarity, c.lang, s.normal, s.foil
+    FROM picked p JOIN cards c ON c.scryfall_id = p.sfid JOIN series s ON s.uuid = c.uuid
+    WHERE ${where.join(' AND ')}`;
+  const rows = c.prepare(sql).all(...args);
+
+  const out = rows.map(r => {
+    const blob = r.normal || r.foil;
+    const was = blobAt(blob, from);
+    const nowP = blobAt(blob, to);
+    const wasEff = (was != null && was >= 0.1) ? was : null;   // points aberrants MTGJSON (< 0,10 EUR) = pas de prix fiable
+    return { sfid: r.scryfall_id, name: r.name, set: r.set, cn: r.cn, rarity: r.rarity, lang: r.lang,
+             was: was != null ? round2(was) : null, now: nowP != null ? round2(nowP) : null,
+             pct: (wasEff && nowP) ? nowP / wasEff - 1 : null, _wasEff: wasEff != null, _blob: blob };
+  });
+  const sort = q.sort || 'pct';
+  const dir = q.dir === 'asc' ? 1 : -1;
+  const cmp = ({
+    name: (a, b) => String(a.name).localeCompare(String(b.name)),
+    set: (a, b) => String(a.set).localeCompare(String(b.set)) || String(a.name).localeCompare(String(b.name)),
+    rarity: (a, b) => (RARITY_ORDER[a.rarity] ?? 9) - (RARITY_ORDER[b.rarity] ?? 9) || String(a.name).localeCompare(String(b.name)),
+    was: (a, b) => (a.was ?? -1) - (b.was ?? -1),
+    now: (a, b) => (a.now ?? -1) - (b.now ?? -1),
+    pct: (a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity),
+  })[sort] || ((a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity));
+  out.sort((a, b) => {
+    const aNo = !a._wasEff, bNo = !b._wasEff;
+    if (aNo !== bNo) return aNo ? 1 : -1;
+    if (aNo && bNo) return (b.now ?? -1) - (a.now ?? -1);
+    return cmp(a, b) * dir;
+  });
+
+  const pcts = out.filter(r => r.pct != null).map(r => r.pct).sort((a, b) => a - b);
+  const n = out.length;
+  const up = pcts.filter(p => p > 0).length, down = pcts.filter(p => p < 0).length;
+  const median = pcts.length ? pcts[Math.floor(pcts.length / 2)] : null;
+  const avg = pcts.length ? pcts.reduce((s, p) => s + p, 0) / pcts.length : null;
+  let hist = [];
+  if (pcts.length) {
+    const lo = pcts[0], hi = pcts[pcts.length - 1], B = 12, span = Math.max(1e-9, hi - lo);
+    hist = Array.from({ length: B }, (_, i) => ({ lo: lo + span * i / B, hi: lo + span * (i + 1) / B, n: 0 }));
+    for (const p of pcts) hist[Math.min(B - 1, Math.floor((p - lo) / span * B))].n++;
+  }
+
+  const daysIn = allHistorizedDays().days.filter(d => d >= from && d <= to);
+  const idxSums = new Array(daysIn.length).fill(0), idxCnt = new Array(daysIn.length).fill(0);
+  const idxSample = out.length > 20000 ? out.filter((_, i) => i % Math.ceil(out.length / 20000) === 0) : out;
+  for (const r of idxSample) {
+    if (!r._wasEff || !r._blob) continue;
+    const pts = blobPoints(r._blob);
+    let k = 0;
+    for (let i = 0; i < daysIn.length; i++) {
+      const d = daysIn[i];
+      while (k < pts.length && pts[k][0] <= d) k++;
+      if (k > 0) { idxSums[i] += pts[k - 1][1] / (r.was >= 0.1 ? r.was : pts[k - 1][1]) * 100; idxCnt[i]++; }
+    }
+  }
+  const index = daysIn.map((d, i) => [dayStr(d), idxCnt[i] ? round2(idxSums[i] / idxCnt[i]) : null]).filter(p => p[1] != null);
+
+  const limit = Math.min(100, Math.max(5, parseInt(q.limit, 10) || 25));
+  const pages = Math.max(1, Math.ceil(n / limit));
+  const page = Math.min(pages, Math.max(1, parseInt(q.page, 10) || 1));
+  const pageRows = out.slice((page - 1) * limit, page * limit).map(r => {
+    let spark = [];
+    if (r._blob) {
+      const pts = blobPoints(r._blob).filter(p => p[0] >= from && p[0] <= to);
+      const stride = Math.max(1, Math.ceil(pts.length / 60));
+      spark = pts.filter((_, i) => i % stride === 0).map(p => [dayStr(p[0]), round2(p[1])]);
+      if (pts.length) { const last = pts[pts.length - 1]; if (spark[spark.length - 1][0] !== dayStr(last[0])) spark.push([dayStr(last[0]), round2(last[1])]); }
+    }
+    const { _blob, _wasEff, ...row } = r;
+    return { ...row, spark };
+  });
+
+  const result = { ok: true, from: dayStr(from), to: dayStr(to), total: n, page, pages, limit,
+    kpi: { n, up, down, flat: pcts.length - up - down, median: median != null ? round2(median * 100) / 100 : null, avg: avg != null ? round2(avg * 100) / 100 : null },
+    hist, index, rows: pageRows };
+  marketCardsCache.set(key, { ts: nowS, result });
+  sendJson(res, 200, result);
+}
+
 /* Valorisation de la collection : maintenant et aux fenêtres passées */
 /* Valeur totale de CHAQUE extension en une seule requête SQL depuis prices.db (cache 12h).
    Équivalent à la somme des prix Scryfall par set, mais instantané : pas d'appel API externe. */
@@ -198,15 +329,11 @@ export function apiCollvalue(req, res) {
   });
 }
 
-/* GET /api/prices/days — jours historisés dans prices.db : { from, to, n, days:[ordinals] }.
-   from = plus ancien point de toutes les séries, to = aujourd'hui, days = union des jours avec >= 1 prix.
-   Cache memoire invalide par le mtime du fichier. */
+/* Jours historisés de prices.db (union des jours de tous les blobs), cache invalidé par le mtime. */
 let daysCache = { mtime: -1, result: null };
-export function apiPriceDays(req, res) {
-  if (!pricesAvailable())
-    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise a jour (Parametres).' });
+function allHistorizedDays() {
   const mtime = fs.statSync(PRICES_DB).mtimeMs;
-  if (daysCache.result && daysCache.mtime === mtime) return sendJson(res, 200, daysCache.result);
+  if (daysCache.result && daysCache.mtime === mtime) return daysCache.result;
   const c = getPricesDb();
   const days = new Set();
   let from = null;
@@ -222,10 +349,15 @@ export function apiPriceDays(req, res) {
       }
     }
   }
-  const to = todayOrdinal();
-  const out = { ok: true, from: dayStr(from), to: dayStr(to), n: days.size, days: [...days].sort((a, b) => a - b) };
-  daysCache = { mtime, result: out };
-  sendJson(res, 200, out);
+  const result = { ok: true, from: dayStr(from), to: dayStr(todayOrdinal()), n: days.size, days: [...days].sort((a, b) => a - b) };
+  daysCache = { mtime, result };
+  return result;
+}
+/* GET /api/prices/days — { from, to, n, days:[ordinals] } (jours avec >= 1 prix dans prices.db) */
+export function apiPriceDays(req, res) {
+  if (!pricesAvailable())
+    return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise a jour (Parametres).' });
+  sendJson(res, 200, allHistorizedDays());
 }
 
 /* GET /api/prices/last — map scryfall_id -> [last_norm, last_foil] : dernier prix connu de chaque carte,
