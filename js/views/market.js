@@ -246,7 +246,7 @@ function mkQuery(){
 function tableHTML(j){
   const th = (k, label, w) => `<th data-s="${k}" style="${w?`width:${w};`:''}cursor:pointer;user-select:none">${label}${mk.sort===k?(mk.dir==='asc'?' ▲':' ▼'):''}</th>`;
   return `<table id="mk-table"><thead><tr>
-    <th style="width:76px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('rarity','Rareté',90)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
+    <th style="width:86px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('rarity','Rareté',90)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
   </tr></thead><tbody id="mk-body">
   ${j.rows.map(r => `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
     <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${r.img_lg||r.img||''}" src="${r.img||''}" alt=""></td>
