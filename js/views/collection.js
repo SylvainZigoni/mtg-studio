@@ -19,7 +19,8 @@ function apPriceTxt(p){
    VUE COLLECTION
    ============================================================ */
 /* état de la vue collection */
-let collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, foil:false, signed:false};
+let collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, foil:'', signed:false};
+if (typeof collF.foil === 'boolean') collF.foil = collF.foil ? '1' : '';   // migration ancienne checkbox
 let collSort = '', collView = 'list', collChecked = new Set(), collPending = false;
 function setCollSort(v){ collSort = v; }
 
@@ -66,7 +67,8 @@ function collFilterAndSort(){
     }
     if(F.tags.length && !F.tags.every(t => (e.tags||[]).includes(t))) return false;
     if(F.set && e.set !== F.set) return false;
-    if(F.foil && !e.foil) return false;
+    if(F.foil === '1' && !e.foil) return false;   // Foil seulement
+    if(F.foil === '0' && e.foil) return false;     // Non foil
     if(F.signed && !e.signed) return false;
     if(!needMeta) return true;
     if(!p) return false;
@@ -153,9 +155,11 @@ function vCollection(app){
       <label class="row" style="gap:6px" title="Ne garder que les cartes de la Reserved List">
         <input type="checkbox" id="freserved" ${collF.reserved?'checked':''}> Reserved List
       </label>
-      <label class="row" style="gap:6px" title="Ne garder que les exemplaires foil">
-        <input type="checkbox" id="ffoil" ${collF.foil?'checked':''}> Foil
-      </label>
+            <select id="ffoil" title="Finition foil">
+        <option value="0" ${collF.foil==='0'?'selected':''}>Non foil</option>
+        <option value="1" ${collF.foil==='1'?'selected':''}>Foil seulement</option>
+        <option value="" ${collF.foil===''?'selected':''}>Foil et non foil</option>
+      </select>
       <label class="row" style="gap:6px" title="Ne garder que les exemplaires signés">
         <input type="checkbox" id="fsigned" ${collF.signed?'checked':''}> Signée
       </label>
@@ -341,9 +345,9 @@ function bindCollection(app, ctx){
   app.querySelector('#fset').onchange = e => { collF.set = e.target.value; upd(); };
   app.querySelector('#fsort').onchange = e => { collSort = e.target.value; vCollection(app); };
   app.querySelector('#freserved').onchange = e => { collF.reserved = e.target.checked; upd(); };
-  app.querySelector('#ffoil').onchange = e => { collF.foil = e.target.checked; upd(); };
+  app.querySelector('#ffoil').onchange = e => { collF.foil = e.target.value; upd(); };
   app.querySelector('#fsigned').onchange = e => { collF.signed = e.target.checked; upd(); };
-  app.querySelector('#freset').onclick = () => { collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, foil:false, signed:false}; upd(); };
+  app.querySelector('#freset').onclick = () => { collF = {q:'', tags:[], colors:[], types:[], cmc:'', pmin:'', pmax:'', set:'', artist:'', reserved:false, foil:'', signed:false}; upd(); };
 
   // ---- chips de tags ----
   app.querySelectorAll('.binderchip[data-t]').forEach(ch => ch.onclick = e => {

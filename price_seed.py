@@ -33,11 +33,18 @@ def init_db():
     CREATE TABLE IF NOT EXISTS series(uuid TEXT PRIMARY KEY, normal BLOB, foil BLOB,
         last_norm REAL, last_foil REAL, last_date TEXT);
     CREATE TABLE IF NOT EXISTS cards(scryfall_id TEXT PRIMARY KEY, uuid TEXT, name TEXT,
-        "set" TEXT, cn TEXT, released_at TEXT);
+        "set" TEXT, cn TEXT, released_at TEXT, artist TEXT, colors TEXT, type_line TEXT,
+        cmc REAL, rarity TEXT, image TEXT, reserved INTEGER DEFAULT 0, lang TEXT);
     CREATE INDEX IF NOT EXISTS cards_setcn ON cards("set", cn);
     CREATE INDEX IF NOT EXISTS cards_name ON cards(name);
     CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
     """)
+    # migration : colonnes metadonnees ajoutees pour la vue Marche
+    cols = {r[1] for r in con.execute("PRAGMA table_info(cards)")}
+    for col, decl in (("artist","TEXT"),("colors","TEXT"),("type_line","TEXT"),("cmc","REAL"),
+                      ("rarity","TEXT"),("image","TEXT"),("reserved","INTEGER DEFAULT 0"),("lang","TEXT")):
+        if col not in cols:
+            con.execute(f"ALTER TABLE cards ADD COLUMN {col} {decl}")
     con.commit()
     return con
 
@@ -99,12 +106,13 @@ def unpack_points(blob):
     return out
 
 def downsample(pts):
-    """pts: [(date_str, prix)]. Garde tout l'historique < 400 jours, sinon 1 point par semaine (le dernier)."""
+    """pts: [(date_str OU ordinal int, prix)]. Garde tout l'historique < 400 jours, sinon 1 point par semaine (le dernier)."""
     if not pts:
         return []
     import datetime
     cutoff = datetime.date.today().toordinal() - 400
-    pts = [(datetime.date(int(d[:4]), int(d[5:7]), int(d[8:10])).toordinal(), p) for d, p in pts]
+    # weekly() passe des ordinals (int) via _map_to_days, seed_prices/today des dates ISO 'YYYY-MM-DD'
+    pts = [(d if isinstance(d, int) else datetime.date(int(d[:4]), int(d[5:7]), int(d[8:10])).toordinal(), p) for d, p in pts]
     pts.sort()
     out, seen = [], []
     for day, p in pts:                      # triés par date croissante
@@ -142,13 +150,20 @@ class Stream:
             if self.pos < len(self.buf): return self.buf[self.pos:self.pos+1]
             self._fill()
     def read_string(self):
-        """Lit une chaîne JSON (les dates/ids de MTGJSON n'ont pas d'échappements)."""
+        """Lit une chaîne JSON, en ignorant les guillemets échappés (\\")."""
         assert self.skip_ws() == b'"', "chaîne attendue"
         self.pos += 1
         parts = []
         while True:
             idx = self.buf.find(b'"', self.pos)
             if idx != -1:
+                j, bs = idx - 1, 0
+                while j >= 0 and self.buf[j] == 92:   # backslash
+                    bs += 1; j -= 1
+                if bs % 2 == 1:   # quote échappée : on continue la chaîne
+                    parts.append(self.buf[self.pos:idx + 1])
+                    self.pos = idx + 1
+                    continue
                 parts.append(self.buf[self.pos:idx])
                 self.pos = idx + 1
                 return b"".join(parts).decode()
@@ -341,7 +356,7 @@ def seed_cards():
     listfile = download(f"{BASE_URL}/SetList.json.gz", os.path.join(CACHE_DIR, "SetList.json.gz"))
     setlist = json.load(gzip.open(listfile))
     con = init_db()
-    codes = [s["code"] for s in setlist["data"]]
+    codes = [s["code"] for s in setlist["data"] if not s.get("isOnlineOnly")]   # que les extensions papier
     done = set(r[0] for r in con.execute('SELECT DISTINCT "set" FROM cards'))
     todo = [c for c in codes if c not in done]
     log(f"{len(todo)} extensions à importer ({len(done)} déjà faites)…")
@@ -349,13 +364,17 @@ def seed_cards():
         try:
             p = download(f"{BASE_URL}/{code.upper()}.json.gz", os.path.join(CACHE_DIR, f"{code}.json.gz"))
             data = json.load(gzip.open(p)).get("data") or {}
+            if data.get("isOnlineOnly"):
+                continue   # extension online-only : aucune carte a importer
             rows = []
             for c in (data.get("cards") or []) + (data.get("tokens") or []):
+                if "paper" not in (c.get("availability") or []):
+                    continue   # que les cartes PAPIER (availability)
                 sfid = (c.get("identifiers") or {}).get("scryfallId")
                 if sfid:
                     rows.append((sfid, c.get("uuid"), c.get("name"), code,
                                  c.get("number"), c.get("releaseDate")))
-            con.executemany("INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?)", rows)
+            con.executemany('INSERT OR REPLACE INTO cards (scryfall_id, uuid, name, "set", cn, released_at) VALUES(?,?,?,?,?,?)', rows)
             con.commit()
             if i % 25 == 0:
                 log(f"extension {code} ({i+1}/{len(todo)}) — {len(rows)} cartes")
@@ -365,6 +384,141 @@ def seed_cards():
     con.commit()
     total = con.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
     log(f"Table cards : {total} cartes")
+
+def _read_scalar(st):
+    """Lit un scalaire JSON (nombre/littéral) via le Stream, retourne la valeur Python."""
+    parts = []
+    while True:
+        m = re.compile(rb"[,\]}]").search(st.buf, st.pos)
+        if m:
+            parts.append(st.buf[st.pos:m.start()]); st.pos = m.start()
+            return json.loads(b"".join(parts).decode())
+        parts.append(st.buf[st.pos:])
+        st.buf = st.f.read(st.chunk); st.pos = 0
+        if not st.buf:
+            raise EOFError("scalaire non termine")
+
+def seed_cardsmeta():
+    """AllPrintings.json.gz -> enrichit la table cards (artiste, couleurs, type, cmc,
+    rarete, image, reserved, lang). Un seul gros fichier telecharge (avec reprise), parse en streaming."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    dest = os.path.join(CACHE_DIR, "AllPrintings.json.gz")
+    src = download(f"{BASE_URL}/AllPrintings.json.gz", dest)
+    con = init_db()
+    nonpaper = []   # scryfall_id des cartes non-paper vues (menage en fin de parse)
+    st = Stream(src)
+    assert st.skip_ws() == b"{"; st.pos += 1
+    n = 0; t0 = time.time()
+    while True:
+        kind, key = st.key_or_close()
+        if kind == b"}": break
+        if st.skip_ws() == b":": st.pos += 1
+        if key != "data": st.skip_value(); continue
+        assert st.skip_ws() == b"{"; st.pos += 1
+        while True:   # chaque extension
+            kind, code = st.key_or_close()
+            if kind == b"}": break
+            if st.skip_ws() == b":": st.pos += 1
+            assert st.skip_ws() == b"{"; st.pos += 1   # objet du set
+            while True:
+                k2, what = st.key_or_close()
+                if k2 == b"}": break
+                if st.skip_ws() == b":": st.pos += 1
+                if what not in ("cards", "tokens"): st.skip_value(); continue
+                assert st.skip_ws() == b"["; st.pos += 1
+                while True:   # chaque carte du tableau
+                    if st.skip_ws() == b"]": st.pos += 1; break
+                    assert st.skip_ws() == b"{"; st.pos += 1
+                    f = {}
+                    while True:
+                        k3, key3 = st.key_or_close()
+                        if k3 == b"}": break
+                        if st.skip_ws() == b":": st.pos += 1
+                        if key3 in ("uuid","name","number","rarity","artist","type","language","releaseDate"):
+                            f[key3] = st.read_string()
+                        elif key3 in ("manaValue","reserved"):
+                            f[key3] = _read_scalar(st)
+                        elif key3 == "colors":
+                            assert st.skip_ws() == b"["; st.pos += 1
+                            cols = []
+                            while True:
+                                if st.skip_ws() == b"]": st.pos += 1; break
+                                cols.append(st.read_string())
+                            f[key3] = cols
+                        elif key3 == "availability":
+                            assert st.skip_ws() == b"["; st.pos += 1
+                            av = []
+                            while True:
+                                if st.skip_ws() == b"]": st.pos += 1; break
+                                av.append(st.read_string())
+                            f[key3] = av
+                        elif key3 in ("identifiers","imageUris"):
+                            want = "scryfallId" if key3 == "identifiers" else "small"
+                            tag = "sfid" if key3 == "identifiers" else "img"
+                            assert st.skip_ws() == b"{"; st.pos += 1
+                            while True:
+                                k4, key4 = st.key_or_close()
+                                if k4 == b"}": break
+                                if st.skip_ws() == b":": st.pos += 1
+                                if key4 == want: f[tag] = st.read_string()
+                                else: st.skip_value()
+                        else:
+                            st.skip_value()
+                    sfid = f.get("sfid")
+                    av = f.get("availability")
+                    if sfid and (av is None or "paper" in av):   # que les cartes PAPIER
+                        con.execute("INSERT OR REPLACE INTO cards (scryfall_id, uuid, name, \"set\", cn, released_at, artist, colors, type_line, cmc, rarity, image, reserved, lang) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (sfid, f.get("uuid"), f.get("name"), code, f.get("number"), f.get("releaseDate"),
+                             f.get("artist"), "," + ",".join(f.get("colors") or []) + ",",
+                             f.get("type"), f.get("manaValue"), f.get("rarity"),
+                             f.get("img"), 1 if f.get("reserved") else 0, f.get("language")))
+                        n += 1
+                    elif sfid:
+                        nonpaper.append(sfid)
+                    if n % 20000 == 0:
+                        con.commit(); log(f"{n} cartes lues… ({time.time()-t0:.0f}s)")
+    con.commit()
+    # menage : supprime les cartes non-paper deja en base et les series orphelines
+    for i in range(0, len(nonpaper), 500):
+        con.executemany("DELETE FROM cards WHERE scryfall_id=?", [(x,) for x in nonpaper[i:i+500]])
+    if con.execute("SELECT COUNT(*) FROM cards").fetchone()[0] > 100000:
+        con.execute("DELETE FROM series WHERE uuid NOT IN (SELECT uuid FROM cards)")   # series sans card (ex-set online)
+    log(f"Menage papier : {len(nonpaper)} cartes non-paper supprimees de cards")
+    con.execute("INSERT OR REPLACE INTO meta VALUES('cards_meta', ?)", (time.strftime("%Y-%m-%d"),))
+    con.commit()
+    total = con.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+    log(f"Table cards : {total} cartes, metadonnees a jour ({time.time()-t0:.0f}s)")
+    seed_reserved()
+
+
+def seed_reserved():
+    """Marque reserved=1 dans cards depuis la Reserved List de Scryfall.
+    MTGJSON v5 n'exporte plus le champ 'reserved' dans AllPrintings (toujours 0),
+    donc on interroge Scryfall : is:reserved avec unique=prints -> toutes les
+    impressions de la RL avec leur scryfall_id (colonne utilisee par l'app)."""
+    con = init_db()
+    ids = set()
+    url = "https://api.scryfall.com/cards/search?q=is%3Areserved&unique=prints"
+    page = 0
+    while url:
+        page += 1
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (MTGStudio)", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            j = json.loads(r.read().decode())
+        for c in j.get("data", []):
+            if c.get("id"):
+                ids.add(c["id"])
+        log(f"  reserved : page {page}, {len(ids)} impressions cumulees")
+        url = j.get("next_page")
+        if url:
+            time.sleep(0.12)   # ~8 req/s max (limite Scryfall)
+    n = 0
+    for sfid in ids:
+        n += con.execute("UPDATE cards SET reserved=1 WHERE scryfall_id=?", (sfid,)).rowcount
+    con.commit()
+    con.execute("INSERT OR REPLACE INTO meta VALUES('reserved_seed', ?)", (time.strftime("%Y-%m-%d"),))
+    con.commit()
+    log(f"Reserved List : {len(ids)} impressions scannees, {n} cartes marquees reserved=1")
 
 # ------------------- étape 3 : mise à jour quotidienne (AllPricesToday)
 def update_today(force=False):
@@ -687,10 +841,14 @@ if __name__ == "__main__":
             seed_prices()
         elif what == "cards":
             seed_cards()
+        elif what == "cardsmeta" or what == "paper":
+            seed_cardsmeta()   # ne garde que les cartes papier + menage des non-paper/orphelins
         elif what == "today":
             update_today(force="--force" in sys.argv)
         elif what == "weekly":
             weekly()
+        elif what == "reserved":
+            seed_reserved()
         else:
             print(__doc__)
     finally:
