@@ -17,10 +17,11 @@ import { loadPriceDays, mountPriceTimeline, priceDays, frOfDay } from '../core/p
    ============================================================ */
 let mk = Object.assign({
   mode: 'cartes', name: '', artist: '', colors: [], types: [], cmc: '', set: '',
-  reserved: false, coll: false, foil: false, sort: 'pct', dir: 'desc', page: 1, limit: 25,
+  reserved: false, coll: false, foil: '', sort: 'pct', dir: 'desc', page: 1, limit: 25,
 }, store.get('mtg_market', {}));
 // migration : l'ancien filtre "type" (select unique) devient "types" (cases à cocher multiples)
 if (!Array.isArray(mk.types)) mk.types = mk.type ? [mk.type] : [];
+if (typeof mk.foil === 'boolean') mk.foil = mk.foil ? '1' : '';   // migration ancienne checkbox
 delete mk.type;
 
 const saveMk = () => store.set('mtg_market', mk);
@@ -71,9 +72,11 @@ function filtersHTML(){
     <label class="row" style="gap:6px" title="Ne rechercher que les cartes de ma collection">
       <input type="checkbox" id="mk-coll" ${mk.coll?'checked':''}> Dans ma collection
     </label>
-    <label class="row" style="gap:6px" title="Ne rechercher que les versions foil">
-      <input type="checkbox" id="mk-foil" ${mk.foil?'checked':''}> Foil
-    </label>
+        <select id="mk-foil" title="Finition foil">
+      <option value="0" ${mk.foil==='0'?'selected':''}>Non foil</option>
+      <option value="1" ${mk.foil==='1'?'selected':''}>Foil seulement</option>
+      <option value="" ${mk.foil===''?'selected':''}>Foil et non foil</option>
+    </select>
     <button class="btn" id="mk-go">Rechercher</button>
     <button class="btn ghost" id="mk-reset">Réinitialiser</button>
   </div>`;
@@ -240,7 +243,7 @@ function mkQuery(){
   if(mk.set) qs.set('set', mk.set);
   if(mk.reserved) qs.set('reserved', '1');
   if(mk.coll) qs.set('scope', 'collection');
-  if(mk.foil) qs.set('foil', '1');
+  if(mk.foil === '1' || mk.foil === '0') qs.set('foil', mk.foil);   // '' = foil et non foil
   return qs.toString();
 }
 
@@ -437,7 +440,7 @@ function vMarket(app){
   app.querySelector('#mk-cmc').onchange = e => { mk.cmc = e.target.value; };
   app.querySelector('#mk-reserved').onchange = e => { mk.reserved = e.target.checked; go(); };
   app.querySelector('#mk-coll').onchange = e => { mk.coll = e.target.checked; go(); };
-  app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.checked; go(); };
+  app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.value; go(); };
 
   const setSel = app.querySelector('#mk-set');
   const setsReady = sfSets().then(list => {
@@ -449,7 +452,7 @@ function vMarket(app){
 
   app.querySelector('#mk-go').onclick = go;
   app.querySelector('#mk-reset').onclick = () => {
-    Object.assign(mk, { name:'', artist:'', colors:[], types:[], cmc:'', set:'', reserved:false, coll:false, foil:false, page:1 });
+    Object.assign(mk, { name:'', artist:'', colors:[], types:[], cmc:'', set:'', reserved:false, coll:false, foil:'', page:1 });
     saveMk(); vMarket(app);
   };
 
