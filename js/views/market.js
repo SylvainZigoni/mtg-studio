@@ -195,6 +195,7 @@ function drawIndex(cv, index){
 function drawTotal(cv, pts){
   const H = 120;
   const dpr = window.devicePixelRatio || 1;
+  const accent = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '').trim() || '#5b8cff';   // canvas ne résout pas var(--accent)
   const w = cv.clientWidth || cv.parentElement.clientWidth || 400;
   cv.width = Math.round(w * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -213,7 +214,7 @@ function drawTotal(cv, pts){
     pts.forEach((p, i) => ctx.lineTo(X(i), Y(p[1])));
     ctx.lineTo(X(pts.length - 1), H - 14); ctx.closePath();
     ctx.fillStyle = 'rgba(91,140,255,.10)'; ctx.fill();
-    ctx.strokeStyle = 'var(--accent)'; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath();
     pts.forEach((p, i) => { const x = X(i), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
     ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '10px sans-serif';
@@ -247,6 +248,7 @@ function drawTotal(cv, pts){
 function drawSpark(cv, pts){
   const W = 110, H = 30;
   const dpr = window.devicePixelRatio || 1;
+  const accent = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '').trim() || '#5b8cff';
   cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const paint = (hov, mx, my) => {
@@ -257,7 +259,7 @@ function drawSpark(cv, pts){
     const span = Math.max(1e-9, hi - lo);
     const X = i => 2 + (W - 4) * i / (pts.length - 1 || 1);
     const Y = v => H - 4 - (H - 8) * (v - lo) / span;
-    ctx.strokeStyle = 'var(--accent)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.beginPath();
     pts.forEach((p, i) => { const x = X(i), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
     ctx.stroke();
     if(hov != null){
