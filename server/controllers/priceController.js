@@ -91,7 +91,7 @@ export function apiMarket(req, res) {
       let old;
       if (targetDay) old = blobAt(blob, targetDay);
       else { const pts = blobPoints(blob); old = pts.length ? pts[0][1] : null; }
-      if (old == null || old < 0.1) continue; // points aberrants MTGJSON
+      if (old == null || old <= 0) continue; // points aberrants MTGJSON (<= 0 EUR)
       const p = pct(cur, old);
       if (p == null) continue;
       results.push({ name: e.name, set: e.set, cn: e.cn, now: round2(cur), was: round2(old), pct: p, qty: e.qty || 1, foil: !!e.foil, sfid: s.scryfall_id });
@@ -106,7 +106,7 @@ export function apiMarket(req, res) {
       let old;
       if (targetDay) old = blobAt(blob, targetDay);
       else { const pts = blobPoints(blob); old = pts.length ? pts[0][1] : null; }
-      if (old == null || old < 0.1) continue;
+      if (old == null || old <= 0) continue; // points aberrants MTGJSON (<= 0 EUR)
       const p = pct(cur, old);
       if (p == null) continue;
       results.push({ name: s.name, set: s.set, cn: null, now: round2(cur), was: round2(old), pct: p, qty: 1, foil: false, sfid: s.scryfall_id });
@@ -245,9 +245,14 @@ function computeMarketCards(q, from, to) {
       const push = (blob, foil) => {
         const qty = collMap.get(r.scryfall_id + '|' + (foil ? 1 : 0)) || 0;
         if (scopeColl && qty <= 0) return;   // "Dans ma collection" : seules les finitions possédées
-        const was = blob ? blobAt(blob, from) : null;
+        let was = blob ? blobAt(blob, from) : null;
         const nowP = blob ? blobAt(blob, to) : null;
-        const wasEff = (was != null && was >= 0.1) ? was : null;   // points aberrants MTGJSON (< 0,10 EUR)
+        let wasEff = (was != null && was > 0) ? was : null;   // points aberrants MTGJSON (<= 0 EUR) ; les vrais prix bas (0,02-0,09 EUR) comptent
+        if (wasEff == null && blob) {
+          // pas de prix valide à "from" (série commencée dans la fenêtre) : on prend le 1er prix valide connu dans [from, to]
+          const first = blobPoints(blob).find(p => p[0] >= from && p[0] <= to && p[1] > 0);
+          if (first) { was = first[1]; wasEff = first[1]; }
+        }
         const flat = (wasEff != null && nowP != null) ? round2(nowP - wasEff) : null;
         out.push({ ...base, foil, qty,
           was: was != null ? round2(was) : null, now: nowP != null ? round2(nowP) : null,
@@ -310,9 +315,9 @@ function computeMarketCards(q, from, to) {
         while (k < pts.length && pts[k][0] <= d) k++;
         if (k > 0) {
           const v = pts[k - 1][1];
-          if (v < 0.1) continue;                                  // point aberrant MTGJSON
+          if (v <= 0) continue;                                  // point aberrant MTGJSON (<= 0 EUR)
           totSums[i] += v * sampleF;                              // valorisation totale des cartes filtrées
-          if (r._wasEff) { idxSums[i] += v / (r.was >= 0.1 ? r.was : v) * 100; idxCnt[i]++; }
+          if (r._wasEff) { idxSums[i] += v / (r.was > 0 ? r.was : v) * 100; idxCnt[i]++; }
         }
       }
     }
