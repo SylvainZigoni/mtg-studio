@@ -402,14 +402,18 @@ async function mkLoad(app){
   app.querySelectorAll('#mk-kpi .pcard').forEach(el => el.onclick = () =>
     R.showCardInfo(el.dataset.name, undefined, el.dataset.set ? {set: el.dataset.set, cn: el.dataset.cn} : null));
   // table + pagination
-  res.innerHTML = `<p class="hint">${j.total.toLocaleString('fr-FR')} résultats — page ${j.page} / ${j.pages}</p>` + tableHTML(j) + `
-    <div class="row" style="gap:10px;margin-top:10px">
+  const pageLinks = Array.from({ length: j.pages }, (_, i) => i + 1).map(pn =>
+    pn === j.page ? `<span class="pagenum cur">${pn}</span>` : `<span class="pagenum" data-p="${pn}">${pn}</span>`).join('');
+  res.innerHTML = `<p class="hint">${j.total.toLocaleString('fr-FR')} résultats</p>` + tableHTML(j) + `
+    <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center">
+      <span class="hint" style="font-weight:600">Page ${j.page} / ${j.pages}</span>
       <button class="btn ghost" id="mk-prev" ${j.page<=1?'disabled':''}>← Précédent</button>
-      <span class="hint">Page ${j.page} / ${j.pages}</span>
       <button class="btn ghost" id="mk-next" ${j.page>=j.pages?'disabled':''}>Suivant →</button>
+      <span class="row" style="gap:3px;flex-wrap:wrap">${pageLinks}</span>
     </div>`;
   res.querySelector('#mk-prev').onclick = () => { mk.page = Math.max(1, j.page - 1); saveMk(); mkLoad(app); };
   res.querySelector('#mk-next').onclick = () => { mk.page = Math.min(j.pages, j.page + 1); saveMk(); mkLoad(app); };
+  res.querySelectorAll('.pagenum[data-p]').forEach(el => el.onclick = () => { mk.page = +el.dataset.p; saveMk(); mkLoad(app); });
   res.querySelectorAll('#mk-table th[data-s]').forEach(th => th.onclick = () => {
     const s = th.dataset.s;
     if(mk.sort === s) mk.dir = mk.dir === 'asc' ? 'desc' : 'asc';
