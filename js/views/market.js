@@ -366,8 +366,8 @@ function kpiHTML(j){
   </div>
   <div class="kpi-box" style="flex:1;min-width:250px">
     <h4 class="sub">Impact sur ma collection</h4>
-    <div class="kpi-line" style="font-weight:400">Valorisation au <b>${isoFr(j.from)}</b> (borne inf.) : <b>${eur(coll.was)}</b></div>
-    <div class="kpi-line" style="font-weight:400">Valorisation au <b>${isoFr(j.to)}</b> (borne sup.) : <b>${eur(coll.now)}</b></div>
+    <div class="kpi-line" style="font-weight:400"><b>${isoFr(j.from)}</b> : <b>${eur(coll.was)}</b></div>
+    <div class="kpi-line" style="font-weight:400"><b>${isoFr(j.to)}</b> : <b>${eur(coll.now)}</b></div>
     <div class="kpi-big" style="color:${pctColor(coll.flat)};margin-top:6px">${fmtSignedEur(coll.flat)} <span style="font-size:15px">/ ${fmtPct(coll.pct)}</span></div>
     <div class="hint" style="margin-top:5px">${(coll.n || 0).toLocaleString('fr-FR')} lignes de collection concernees</div>
   </div>`;
@@ -398,7 +398,6 @@ async function mkLoad(app){
   // KPI : 3 blocs - valorisation totale (sparkline), evolution totale + top/flop 3, impact collection
   app.querySelector('#mk-kpi').innerHTML = kpiHTML(j);
   drawTotal(app.querySelector('#mk-total'), j.totalSeries || []);
-  drawHist(app.querySelector('#mk-hist'), j.hist || []);
   app.querySelectorAll('#mk-kpi .pcard').forEach(el => el.onclick = () =>
     R.showCardInfo(el.dataset.name, undefined, el.dataset.set ? {set: el.dataset.set, cn: el.dataset.cn} : null));
   // table + pagination
@@ -443,9 +442,6 @@ function vMarket(app){
         <span class="hint" id="dtmaxlab" style="font-weight:600"></span>
       </div>
       <div class="row" id="mk-kpi" style="gap:12px;flex-wrap:wrap;margin:10px 0 4px;align-items:stretch"></div>
-      <div class="row" style="gap:18px;flex-wrap:wrap;align-items:flex-start">
-        <div style="flex:1;min-width:280px"><h4 class="sub">Répartition des évolutions (%)</h4><canvas id="mk-hist" style="width:100%"></canvas></div>
-      </div>
       <div id="mkres" style="margin-top:10px"><p class="hint">Chargement…</p></div>
     `}
   </div>`;
