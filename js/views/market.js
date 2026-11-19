@@ -101,10 +101,11 @@ function wireDateGauge(app){
     lmax.textContent = frOfDay(days[Math.max(a, b)]);
     rmin.style.zIndex = a > b - 2 ? 5 : 3;
   };
-  const apply = () => {   // on mémorise la fenêtre mais on ne lance PAS la recherche (bouton "Rechercher")
+  const apply = () => {   // la jauge de dates filtre en direct (au relâchement du curseur) ; les autres filtres attendent le bouton "Rechercher"
     let a = +rmin.value, b = +rmax.value;
     if(a > b){ const t = a; a = b; b = t; }
     mk.from = days[a]; mk.to = days[b]; mk.page = 1; saveMk(); paint();
+    mkLoad(app);
   };
   rmin.addEventListener('input', paint);
   rmax.addEventListener('input', paint);
