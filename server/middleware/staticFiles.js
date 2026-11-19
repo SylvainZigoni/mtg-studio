@@ -7,6 +7,8 @@ import path from 'node:path';
 import { ROOT } from '../utils/paths.js';
 import { sendJson } from '../utils/http.js';
 
+import { livereloadEnabled } from '../utils/livereload.js';
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -44,6 +46,12 @@ export function staticFiles(req, res) {
     };
     // l'app est une page vivante : pas de cache agressif sur le HTML
     if (p === '/' || p === '/index.html' || p.endsWith('.html')) headers['Cache-Control'] = 'no-cache';
+    // live reload dev : les modules/feuilles modifiables sont revalidés à chaque chargement
+    // (If-Modified-Since -> 304 si inchangé, 200 si modifié) => plus besoin de vider le cache.
+    if (livereloadEnabled) {
+      const ext = path.extname(file).toLowerCase();
+      if (['.js', '.css', '.json', '.html'].includes(ext)) headers['Cache-Control'] = 'no-cache';
+    }
     const ims = req.headers['if-modified-since'];
     if (ims && Math.floor(st.mtimeMs / 1000) <= Math.floor(new Date(ims).getTime() / 1000)) {
       res.writeHead(304, headers);

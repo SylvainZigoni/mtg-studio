@@ -6,7 +6,10 @@ import { registerMkmRoutes } from './mkm.js';
 import { registerScrapeRoutes } from './scrape.js';
 import { registerDecksRoutes } from './decks.js';
 
+import { registerDevRoutes } from './dev.js';
+
 export function registerRoutes(app) {
+  registerDevRoutes(app);
   registerHealthRoutes(app);
   registerStateRoutes(app);
   registerPriceRoutes(app);

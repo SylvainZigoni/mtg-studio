@@ -37,6 +37,8 @@ import { sendJson } from './utils/http.js';
 import { getDb } from './utils/db.js';
 import { PORT, DB_PATH } from './utils/paths.js';
 
+import { startLivereloadWatcher } from './utils/livereload.js';
+
 getDb(); // initialise les tables si besoin
 
 const app = createApp();
@@ -59,5 +61,6 @@ server.on('error', e => {
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`MTG Studio : http://localhost:${PORT}`);
   console.log(`Données enregistrées dans : ${DB_PATH}`);
+  startLivereloadWatcher();
 });
 process.on('SIGINT', () => { console.log('\nArrêt du serveur.'); server.close(() => process.exit(0)); });
