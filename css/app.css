@@ -171,6 +171,10 @@ input[type=range]{accent-color:var(--accent)}
    en liste (70x95) — sans max-width:100% du reset qui compresserait l'image */
 #mk-table{table-layout:fixed}
 #mk-table .collthumb{width:70px;height:95px;max-width:none}
+/* Marché : titres et contenus centrés, sauf la colonne Carte (nom) à gauche ; vignette centrée */
+#mk-table th, #mk-table td{text-align:center}
+#mk-table th:nth-child(2), #mk-table td:nth-child(2){text-align:left}
+#mk-table .collthumb{margin:0 auto}
 
 .gridthumb{width:100%;aspect-ratio:488/680;object-fit:cover;border-radius:8px 8px 0 0;background:#000;cursor:zoom-in}
 .tagchip{display:inline-flex;align-items:center;gap:5px;background:var(--accent-soft);color:var(--accent);

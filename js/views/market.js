@@ -35,6 +35,7 @@ function rarityDotHTML(rarity){
   return '';
 }
 const pctColor = v => v == null ? 'var(--muted)' : (v >= 0 ? 'var(--ok)' : 'var(--bad)');
+const isoFr = iso => { const m = /^(\d+)-(\d+)-(\d+)/.exec(String(iso || '')); return m ? m[3] + '/' + m[2] + '/' + m[1] : String(iso || ''); };   // YYYY-MM-DD -> jj/mm/aaaa
 
 /* les visuels viennent directement du résultat Scryfall renvoyé par le serveur (r.img / r.img_lg) */
 
@@ -191,7 +192,7 @@ function drawSpark(cv, pts){
   const dpr = window.devicePixelRatio || 1;
   cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const paint = hov => {
+  const paint = (hov, mx, my) => {
     ctx.clearRect(0, 0, W, H);
     if(!pts.length) return;
     const vals = pts.map(p => p[1]);
@@ -205,19 +206,20 @@ function drawSpark(cv, pts){
     if(hov != null){
       const p = pts[Math.max(0, Math.min(pts.length - 1, hov))];
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(hov), Y(p[1]), 2.5, 0, 7); ctx.fill();
-      const label = `${p[0]} · ${eur(p[1])}`;
+      const label = `${isoFr(p[0])} · ${eur(p[1])}`;   // date jj/mm/aaaa
       ctx.font = 'bold 10px sans-serif';
       const tw = ctx.measureText(label).width + 8;
-      const bx = Math.min(Math.max(X(hov) - tw / 2, 0), W - tw);
-      ctx.fillStyle = 'rgba(20,22,30,.92)'; ctx.fillRect(bx, 0, tw, 13);
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(label, bx + 4, 10);
+      const bx = Math.min(Math.max((mx != null ? mx : X(hov)) - tw / 2, 0), W - tw);
+      const by = my != null ? Math.min(my + 12, H - 14) : 0;   // fenêtre de hover SOUS le pointeur
+      ctx.fillStyle = 'rgba(20,22,30,.92)'; ctx.fillRect(bx, by, tw, 13);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(label, bx + 4, by + 10);
     }
   };
   paint(null);
   cv.onmousemove = e => {
     const r = cv.getBoundingClientRect();
     const i = Math.round((e.clientX - r.left - 2) / (r.width - 4) * (pts.length - 1 || 0));
-    paint(Math.max(0, Math.min(pts.length - 1, i)));
+    paint(Math.max(0, Math.min(pts.length - 1, i)), e.clientX - r.left, e.clientY - r.top);
   };
   cv.onmouseleave = () => paint(null);
 }
@@ -246,14 +248,14 @@ function mkQuery(){
 function tableHTML(j){
   const th = (k, label, w) => `<th data-s="${k}" style="${w?`width:${w};`:''}cursor:pointer;user-select:none">${label}${mk.sort===k?(mk.dir==='asc'?' ▲':' ▼'):''}</th>`;
   return `<table id="mk-table"><thead><tr>
-    <th style="width:86px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('rarity','Rareté',90)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
+    <th style="width:86px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
   </tr></thead><tbody id="mk-body">
-  ${j.rows.map(r => `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
+  ${j.rows.map(r => { const setLabel = esc(r.set_name || setNameMap[r.set] || (r.set||'').toUpperCase());
+    return `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
     <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${r.img_lg||r.img||''}" src="${r.img||''}" alt=""></td>
     <td><div class="cellname">${rarityDotHTML(r.rarity)}<span class="link cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}">${esc(r.name)}</span></div>
         <div class="pillrow">${r.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}</div></td>
-    <td class="hint">${esc(r.set_name || setNameMap[r.set] || (r.set||'').toUpperCase())}${r.cn?` · n°${esc(String(r.cn))}`:''}</td>
-    <td class="hint">${RARITY_FR[r.rarity]||r.rarity||'—'}</td>
+    <td><div>${setLabel}</div>${r.cn?`<div class="hint">n°${esc(String(r.cn))}</div>`:''}</td>
     <td>${r.qty>0?`<span class="pill infopill" title="Exemplaires dans ma collection">×${r.qty}</span>`:'<span class="hint">—</span>'}</td>
     <td class="p">${r.was!=null?eur(r.was):'—'}</td>
     <td class="p">${r.now!=null?eur(r.now):'—'}</td>
@@ -261,7 +263,7 @@ function tableHTML(j){
     <td class="p" style="color:${pctColor(r.flat)};font-weight:700">${r.flat==null?'—':((r.flat>=0?'+':'')+eur(r.flat))}</td>
     <td class="p" style="color:${pctColor(r.impact)};font-weight:700" title="Évolution € × qté possédée">${r.impact==null?'—':((r.impact>=0?'+':'')+eur(r.impact))}</td>
     <td><canvas class="spark" data-spark="${esc(JSON.stringify(r.spark))}"></canvas></td>
-  </tr>`).join('')}
+  </tr>`;}).join('')}
   </tbody></table>`;
 }
 
