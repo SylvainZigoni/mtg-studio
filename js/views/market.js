@@ -190,6 +190,59 @@ function drawIndex(cv, index){
   cv.onmouseleave = () => paint(null);
 }
 
+/* grosse sparkline de la valorisation TOTALE des cartes filtrees : pts = [[iso, EUR]] ;
+   survol -> fenetre sous le pointeur avec date jj/mm/aaaa + montant */
+function drawTotal(cv, pts){
+  const H = 120;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || cv.parentElement.clientWidth || 400;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const paint = (hov, mx, my) => {
+    ctx.clearRect(0, 0, w, H);
+    if(!pts || !pts.length){
+      ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('Aucun prix historise sur la periode.', 4, H / 2); return;
+    }
+    const vals = pts.map(p => p[1]);
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    const span = Math.max(1e-9, hi - lo);
+    const X = i => 4 + (w - 8) * i / (pts.length - 1 || 1);
+    const Y = v => H - 18 - (H - 32) * (v - lo) / span;
+    ctx.beginPath(); ctx.moveTo(X(0), H - 14);
+    pts.forEach((p, i) => ctx.lineTo(X(i), Y(p[1])));
+    ctx.lineTo(X(pts.length - 1), H - 14); ctx.closePath();
+    ctx.fillStyle = 'rgba(91,140,255,.10)'; ctx.fill();
+    ctx.strokeStyle = 'var(--accent)'; ctx.lineWidth = 2; ctx.beginPath();
+    pts.forEach((p, i) => { const x = X(i), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left'; ctx.fillText(isoFr(pts[0][0]) + ' - ' + eur(lo), 4, 12);
+    ctx.fillText(isoFr(pts[0][0]), 4, H - 4);
+    ctx.textAlign = 'right'; ctx.fillText(isoFr(pts[pts.length - 1][0]) + ' - ' + eur(pts[pts.length - 1][1]), w - 4, H - 4);
+    if(hov != null){
+      const p = pts[Math.max(0, Math.min(pts.length - 1, hov))];
+      const x = X(hov), y = Y(p[1]);
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill();
+      const label = `${isoFr(p[0])} . ${eur(p[1])}`;
+      ctx.font = 'bold 11px sans-serif';
+      const tw = ctx.measureText(label).width + 10;
+      const bx = Math.min(Math.max((mx != null ? mx : x) - tw / 2, 2), w - tw - 2);
+      const by = my != null ? Math.min(my + 12, H - 18) : 14;
+      ctx.fillStyle = 'rgba(20,22,30,.92)'; ctx.fillRect(bx, by, tw, 16);
+      ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.strokeRect(bx + 0.5, by + 0.5, tw - 1, 15);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(label, bx + 5, by + 12);
+    }
+  };
+  paint(null);
+  cv.onmousemove = e => {
+    const r = cv.getBoundingClientRect();
+    const i = Math.round((e.clientX - r.left - 4) / (r.width - 8) * (pts.length - 1 || 0));
+    paint(Math.max(0, Math.min(pts.length - 1, i)), e.clientX - r.left, e.clientY - r.top);
+  };
+  cv.onmouseleave = () => paint(null);
+}
+
 /* sparkline d'une ligne : pts = [[iso, prix]] ; survol -> date + prix */
 function drawSpark(cv, pts){
   const W = 110, H = 30;
@@ -271,6 +324,55 @@ function tableHTML(j){
   </tbody></table>`;
 }
 
+/* ---------- blocs KPI (3 blocs en haut de la vue Marche) ---------- */
+const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
+const fmtSignedEur = v => v == null ? '—' : (v >= 0 ? '+' : '') + eur(v);
+
+/* podium Top/Flop 3 facon schema : rang 1 au centre et sureleve, 2 et 3 de part et d'autre */
+function podiumHTML(list, red){
+  if(!list || !list.length) return '<div class="hint">—</div>';
+  const order = list.length >= 3 ? [list[1], list[0], list[2]] : list;   // affichage 2, 1, 3
+  return `<div class="podium ${red ? 'red' : ''}">` + order.map(r => {
+    const rank = list.indexOf(r) + 1;
+    const setCode = String(r.set || '').toUpperCase();
+    return `<div class="pslot r${rank}">
+      <div class="pcard" data-name="${esc(r.name)}" data-set="${esc(r.set || '')}" data-cn="${esc(r.cn ?? '')}"
+           title="${esc(r.name)} (${setCode})${r.cn ? ' n°' + esc(String(r.cn)) : ''}${r.foil ? ' . foil' : ''} - cliquer pour la fiche carte"><b>${esc(r.name)}</b> (${setCode})${r.foil ? ' ✦' : ''}<br>${r.was != null ? eur(r.was) : '—'} → ${r.now != null ? eur(r.now) : '—'}</div>
+      <div class="pbox">${rank}</div>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+function kpiHTML(j){
+  const k = j.kpi || {};
+  const tot = k.tot || {}, coll = k.coll || {};
+  return `
+  <div class="kpi-box" style="flex:1;min-width:260px">
+    <h4 class="sub">Valorisation totale — ${(k.n || 0).toLocaleString('fr-FR')} cartes</h4>
+    <canvas id="mk-total" style="width:100%"></canvas>
+  </div>
+  <div class="kpi-box kpi-mid" style="flex:1.6;min-width:380px">
+    <div class="kpi-mid-left">
+      <div class="hint" style="font-weight:700">Evolution totale</div>
+      <div class="kpi-big" style="color:${pctColor(tot.flat)}">${fmtSignedEur(tot.flat)} <span style="font-size:15px">/ ${fmtPct(tot.pct)}</span></div>
+      <div class="kpi-line" style="color:var(--ok)">▲ ${fmtSignedEur(k.upSum)} <span class="hint" style="font-weight:400">${(k.up || 0).toLocaleString('fr-FR')} cartes en hausse</span></div>
+      <div class="kpi-line" style="color:var(--bad)">▼ ${fmtSignedEur(k.downSum)} <span class="hint" style="font-weight:400">${(k.down || 0).toLocaleString('fr-FR')} cartes en baisse</span></div>
+      <div class="hint" style="margin-top:5px">médiane ${fmtPct(k.median)} · moyenne ${fmtPct(k.avg)} · fenêtre ${isoFr(j.from)} → ${isoFr(j.to)}</div>
+    </div>
+    <div class="kpi-mid-right">
+      <div><div class="hint" style="text-align:center;font-weight:700;color:var(--ok)">Top 3</div>${podiumHTML(k.top3, false)}</div>
+      <div><div class="hint" style="text-align:center;font-weight:700;color:var(--bad)">Flop 3</div>${podiumHTML(k.flop3, true)}</div>
+    </div>
+  </div>
+  <div class="kpi-box" style="flex:1;min-width:250px">
+    <h4 class="sub">Impact sur ma collection</h4>
+    <div class="kpi-line" style="font-weight:400">Valorisation au <b>${isoFr(j.from)}</b> (borne inf.) : <b>${eur(coll.was)}</b></div>
+    <div class="kpi-line" style="font-weight:400">Valorisation au <b>${isoFr(j.to)}</b> (borne sup.) : <b>${eur(coll.now)}</b></div>
+    <div class="kpi-big" style="color:${pctColor(coll.flat)};margin-top:6px">${fmtSignedEur(coll.flat)} <span style="font-size:15px">/ ${fmtPct(coll.pct)}</span></div>
+    <div class="hint" style="margin-top:5px">${(coll.n || 0).toLocaleString('fr-FR')} lignes de collection concernees</div>
+  </div>`;
+}
+
 async function mkLoad(app){
   const res = app.querySelector('#mkres'); if(!res) return;
   const D = priceDays();
@@ -293,18 +395,12 @@ async function mkLoad(app){
   try{ j = await (await fetch('/api/market/cards?' + mkQuery())).json(); }catch(e){}
   clearInterval(poll);
   if(!j || !j.ok){ res.innerHTML = `<p class="hint">⚠ ${esc((j && j.error) || 'serveur injoignable')}</p>`; return; }
-  // KPI
-  const k = j.kpi;
-  const pctUp = k.n ? Math.round(100 * k.up / Math.max(1, k.up + k.down)) : 0;
-  app.querySelector('#mk-kpi').innerHTML = `
-    <span class="pill">${k.n.toLocaleString('fr-FR')} cartes</span>
-    <span class="pill" style="color:var(--ok)">▲ ${k.up.toLocaleString('fr-FR')} (${pctUp}%)</span>
-    <span class="pill" style="color:var(--bad)">▼ ${k.down.toLocaleString('fr-FR')}</span>
-    <span class="pill">médiane ${k.median==null?'—':(k.median>=0?'+':'')+k.median+'%'}</span>
-    <span class="pill">moyenne ${k.avg==null?'—':(k.avg>=0?'+':'')+k.avg+'%'}</span>
-    <span class="pill hint">${j.from} → ${j.to}</span>`;
-  drawHist(app.querySelector('#mk-hist'), j.hist);
-  drawIndex(app.querySelector('#mk-index'), j.index);
+  // KPI : 3 blocs - valorisation totale (sparkline), evolution totale + top/flop 3, impact collection
+  app.querySelector('#mk-kpi').innerHTML = kpiHTML(j);
+  drawTotal(app.querySelector('#mk-total'), j.totalSeries || []);
+  drawHist(app.querySelector('#mk-hist'), j.hist || []);
+  app.querySelectorAll('#mk-kpi .pcard').forEach(el => el.onclick = () =>
+    R.showCardInfo(el.dataset.name, undefined, el.dataset.set ? {set: el.dataset.set, cn: el.dataset.cn} : null));
   // table + pagination
   res.innerHTML = `<p class="hint">${j.total.toLocaleString('fr-FR')} résultats — page ${j.page} / ${j.pages}</p>` + tableHTML(j) + `
     <div class="row" style="gap:10px;margin-top:10px">
@@ -346,10 +442,9 @@ function vMarket(app){
         <span class="hint" id="dtminlab" style="font-weight:600"></span>
         <span class="hint" id="dtmaxlab" style="font-weight:600"></span>
       </div>
-      <div class="row" id="mk-kpi" style="gap:8px;flex-wrap:wrap;margin:10px 0 4px"></div>
+      <div class="row" id="mk-kpi" style="gap:12px;flex-wrap:wrap;margin:10px 0 4px;align-items:stretch"></div>
       <div class="row" style="gap:18px;flex-wrap:wrap;align-items:flex-start">
-        <div style="flex:1;min-width:280px"><h4 class="sub">Indice du marché (base 100 au début)</h4><canvas id="mk-index" style="width:100%"></canvas></div>
-        <div style="flex:1;min-width:280px"><h4 class="sub">Répartition des évolutions</h4><canvas id="mk-hist" style="width:100%"></canvas></div>
+        <div style="flex:1;min-width:280px"><h4 class="sub">Répartition des évolutions (%)</h4><canvas id="mk-hist" style="width:100%"></canvas></div>
       </div>
       <div id="mkres" style="margin-top:10px"><p class="hint">Chargement…</p></div>
     `}

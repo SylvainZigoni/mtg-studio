@@ -174,7 +174,10 @@ function resolveCollSfid(c, e) {
 
 function emptyMarketResult(from, to, limit) {
   return { ok: true, from: dayStr(from), to: dayStr(to), total: 0, page: 1, pages: 1, limit,
-    kpi: { n: 0, up: 0, down: 0, flat: 0, median: null, avg: null }, hist: [], index: [], rows: [] };
+    kpi: { n: 0, up: 0, down: 0, flat: 0, median: null, avg: null,
+      tot: { was: 0, flat: 0, pct: null }, upSum: 0, downSum: 0, top3: [], flop3: [],
+      coll: { n: 0, was: 0, now: 0, flat: 0, pct: null } },
+    hist: [], index: [], totalSeries: [], rows: [] };
 }
 
 function computeMarketCards(q, from, to) {
@@ -294,19 +297,46 @@ function computeMarketCards(q, from, to) {
     }
 
     const daysIn = allHistorizedDays().days.filter(d => d >= from && d <= to);
+    const sampleF = out.length > 20000 ? Math.ceil(out.length / 20000) : 1;
+    const idxSample = sampleF > 1 ? out.filter((_, i) => i % sampleF === 0) : out;
     const idxSums = new Array(daysIn.length).fill(0), idxCnt = new Array(daysIn.length).fill(0);
-    const idxSample = out.length > 20000 ? out.filter((_, i) => i % Math.ceil(out.length / 20000) === 0) : out;
+    const totSums = new Array(daysIn.length).fill(0);
     for (const r of idxSample) {
-      if (!r._wasEff || !r._blob) continue;
+      if (!r._blob) continue;
       const pts = blobPoints(r._blob);
       let k = 0;
       for (let i = 0; i < daysIn.length; i++) {
         const d = daysIn[i];
         while (k < pts.length && pts[k][0] <= d) k++;
-        if (k > 0) { idxSums[i] += pts[k - 1][1] / (r.was >= 0.1 ? r.was : pts[k - 1][1]) * 100; idxCnt[i]++; }
+        if (k > 0) {
+          const v = pts[k - 1][1];
+          if (v < 0.1) continue;                                  // point aberrant MTGJSON
+          totSums[i] += v * sampleF;                              // valorisation totale des cartes filtrées
+          if (r._wasEff) { idxSums[i] += v / (r.was >= 0.1 ? r.was : v) * 100; idxCnt[i]++; }
+        }
       }
     }
     const index = daysIn.map((d, i) => [dayStr(d), idxCnt[i] ? round2(idxSums[i] / idxCnt[i]) : null]).filter(p => p[1] != null);
+    const totalSeries = daysIn.map((d, i) => [dayStr(d), round2(totSums[i])]).filter(p => p[1] > 0);
+
+    // agrégats KPI : évolution totale, top/flop 3 (en €), impact collection (qty x évolution)
+    let totWas = 0, totFlat = 0, upSum = 0, downSum = 0;
+    let collN = 0, collWas = 0, collNow = 0;
+    const withFlat = [];
+    for (const r of out) {
+      if (r.flat != null) {
+        const wasEff = r.now - r.flat;
+        totWas += wasEff; totFlat += r.flat;
+        if (r.flat > 0) upSum += r.flat; else if (r.flat < 0) downSum += r.flat;
+        withFlat.push(r);
+      }
+      if (r.qty > 0 && r.flat != null) { collN++; collWas += (r.now - r.flat) * r.qty; collNow += r.now * r.qty; }
+    }
+    withFlat.sort((a, b) => b.flat - a.flat);
+    const mini = r => ({ name: r.name, set: r.set, cn: r.cn, foil: r.foil, was: r.was, now: r.now, flat: r.flat,
+      pct: r.pct != null ? Math.round(r.pct * 10000) / 10000 : null });
+    const top3 = withFlat.slice(0, 3).map(mini);
+    const flop3 = withFlat.slice(-3).reverse().map(mini);
 
     const limit = Math.min(100, Math.max(5, parseInt(q.limit, 10) || 25));
     const pages = Math.max(1, Math.ceil(n / limit));
@@ -324,8 +354,12 @@ function computeMarketCards(q, from, to) {
     });
 
     return { ok: true, from: dayStr(from), to: dayStr(to), total: n, page, pages, limit,
-      kpi: { n, up, down, flat: pcts.length - up - down, median: median != null ? round2(median * 100) / 100 : null, avg: avg != null ? round2(avg * 100) / 100 : null },
-      hist, index, rows: pageRows };
+      kpi: { n, up, down, flat: pcts.length - up - down, median: median != null ? round2(median * 100) / 100 : null, avg: avg != null ? round2(avg * 100) / 100 : null,
+        tot: { was: round2(totWas), flat: round2(totFlat), pct: totWas > 0 ? round2(totFlat / totWas * 10000) / 100 : null },
+        upSum: round2(upSum), downSum: round2(downSum), top3, flop3,
+        coll: { n: collN, was: round2(collWas), now: round2(collNow), flat: round2(collNow - collWas),
+          pct: collWas > 0 ? round2((collNow - collWas) / collWas * 10000) / 100 : null } },
+      hist, index, totalSeries, rows: pageRows };
   } finally {
     marketStatus.running = false; marketStatus.phase = '';
   }
