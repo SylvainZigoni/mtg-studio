@@ -1,8 +1,8 @@
-import { esc, eur, TYPES_LIST } from '../core/util.js';
+import { esc, eur, norm, TYPES_LIST } from '../core/util.js';
 
 import { store } from '../core/store.js';
 
-import { sfSets, sfAutocomplete, sfArtists } from '../core/scryfall.js';
+import { sfSets, sfFetch, sfAutocomplete, sfArtists } from '../core/scryfall.js';
 
 import { R } from '../core/registry.js';
 
@@ -26,6 +26,7 @@ delete mk.type;
 const saveMk = () => store.set('mtg_market', mk);
 
 const RARITY_FR = { common: 'Commune', uncommon: 'Peu commune', rare: 'Rare', mythic: 'Mythique', special: 'Spéciale', bonus: 'Bonus' };
+let setNameMap = {};   // code d'extension -> nom (rempli depuis sfSets)
 const RAR_COLORS = { mythic: '#B94421', rare: '#CCB473', uncommon: '#CECECE', common: '#2B2728' };
 const COLOR_CSS = { W: '#f4e8a6', U: '#6db3f2', B: '#b5a6f4', R: '#f26a6a', G: '#7ec97e' };
 
@@ -35,34 +36,7 @@ function rarityDotHTML(rarity){
 }
 const pctColor = v => v == null ? 'var(--muted)' : (v >= 0 ? 'var(--ok)' : 'var(--bad)');
 
-const imgCache = store.get('mtg_mk_imgs', {}) || {};
-/* imgCache[id] = { s: url small (vignette), l: url large (zoom hover) } — ancien format string migré à la volée */
-function imgOf(id){
-  const v = imgCache[id];
-  if(!v) return { s: '', l: '' };
-  if(typeof v === 'string') return { s: v, l: v };
-  return { s: v.s || '', l: v.l || v.s || '' };
-}
-async function fetchImages(sfids){
-  const todo = [...new Set(sfids.filter(id => id && !imgCache[id]))];
-  for(let i = 0; i < todo.length; i += 75){
-    try{
-      const r = await fetch('https://api.scryfall.com/cards/collection', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifiers: todo.slice(i, i + 75).map(id => ({ id })) }),
-      });
-      const j = await r.json();
-      (j.data || []).forEach(c => {
-        const face = c.image_uris || (c.card_faces && c.card_faces[0] && c.card_faces[0].image_uris) || {};
-        imgCache[c.id] = { s: face.small || null, l: face.large || face.normal || face.small || null };
-      });
-      todo.slice(i, i + 75).forEach(id => { if (!(id in imgCache)) imgCache[id] = { s: null, l: null }; });
-    }catch(e){}
-  }
-  const keys = Object.keys(imgCache);
-  if(keys.length > 6000){ keys.slice(0, keys.length - 3000).forEach(k => delete imgCache[k]); }
-  store.set('mtg_mk_imgs', imgCache);
-}
+/* les visuels viennent directement du résultat Scryfall renvoyé par le serveur (r.img / r.img_lg) */
 
 /* barre de filtres : mêmes contrôles que la page "Recherche avancée" (browse.js),
    sans la jauge de prix — la période se règle avec les 2 curseurs de la priceline */
@@ -70,7 +44,7 @@ function filtersHTML(){
   return `
   <div class="filterbar">
     <div class="suggbox" style="flex:1;min-width:260px">
-      <input type="text" id="mk-name" placeholder="Nom de carte (anglais ou français : Foudre, Lightning Bolt…)" autocomplete="off" value="${esc(mk.name)}" style="width:100%">
+      <input type="text" id="mk-name" placeholder="Nom de carte (Foudre, bolt, Lightning Bolt…)" autocomplete="off" value="${esc(mk.name)}" style="width:100%">
       <div class="suggestions" id="mk-namesugg" style="display:none"></div>
     </div>
     <div class="suggbox" style="min-width:170px">
@@ -274,11 +248,11 @@ function tableHTML(j){
   return `<table id="mk-table"><thead><tr>
     <th style="width:76px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('rarity','Rareté',90)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
   </tr></thead><tbody id="mk-body">
-  ${j.rows.map(r => { const im = imgOf(r.sfid); return `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
-    <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${im.l}" src="${im.s}" alt=""></td>
+  ${j.rows.map(r => `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
+    <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${r.img_lg||r.img||''}" src="${r.img||''}" alt=""></td>
     <td><div class="cellname">${rarityDotHTML(r.rarity)}<span class="link cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}">${esc(r.name)}</span></div>
         <div class="pillrow">${r.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}</div></td>
-    <td class="hint">${esc((r.set||'').toUpperCase())}${r.cn?` · ${esc(String(r.cn))}`:''}</td>
+    <td class="hint">${esc(r.set_name || setNameMap[r.set] || (r.set||'').toUpperCase())}${r.cn?` · n°${esc(String(r.cn))}`:''}</td>
     <td class="hint">${RARITY_FR[r.rarity]||r.rarity||'—'}</td>
     <td>${r.qty>0?`<span class="pill infopill" title="Exemplaires dans ma collection">×${r.qty}</span>`:'<span class="hint">—</span>'}</td>
     <td class="p">${r.was!=null?eur(r.was):'—'}</td>
@@ -287,7 +261,7 @@ function tableHTML(j){
     <td class="p" style="color:${pctColor(r.flat)};font-weight:700">${r.flat==null?'—':((r.flat>=0?'+':'')+eur(r.flat))}</td>
     <td class="p" style="color:${pctColor(r.impact)};font-weight:700" title="Évolution € × qté possédée">${r.impact==null?'—':((r.impact>=0?'+':'')+eur(r.impact))}</td>
     <td><canvas class="spark" data-spark="${esc(JSON.stringify(r.spark))}"></canvas></td>
-  </tr>`;}).join('')}
+  </tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -296,10 +270,22 @@ async function mkLoad(app){
   const D = priceDays();
   if(!D){ res.innerHTML = '<p class="hint">prices.db indisponible : lancez une mise à jour (Paramètres).</p>'; return; }
   if(mk.from == null){ mk.from = D.from; mk.to = D.to; }
-  // spinner centré au milieu de la page pendant la requête
-  res.innerHTML = `<div class="mkloading"><div class="spin" style="width:48px;height:48px;border-width:4px"></div><p class="hint">Recherche en cours…</p></div>`;
+  // spinner centré au milieu de la page pendant la requête (+ progression Scryfall)
+  res.innerHTML = `<div class="mkloading"><div class="spin" style="width:48px;height:48px;border-width:4px"></div><p class="hint" id="mkloadmsg">Recherche en cours…</p></div>`;
+  const poll = setInterval(async () => {
+    try{
+      const s = await (await fetch('/api/market/cards/status')).json();
+      const el = res.querySelector('#mkloadmsg');
+      if(el && s.running){
+        el.textContent = s.phase === 'scryfall'
+          ? `Recherche Scryfall… page ${s.page} (${(s.cards||0).toLocaleString('fr-FR')} cartes)`
+          : s.phase === 'prices' ? `Lecture des prix dans prices.db… (${(s.cards||0).toLocaleString('fr-FR')} cartes)` : 'Recherche en cours…';
+      }
+    }catch(e){}
+  }, 600);
   let j = null;
   try{ j = await (await fetch('/api/market/cards?' + mkQuery())).json(); }catch(e){}
+  clearInterval(poll);
   if(!j || !j.ok){ res.innerHTML = `<p class="hint">⚠ ${esc((j && j.error) || 'serveur injoignable')}</p>`; return; }
   // KPI
   const k = j.kpi;
@@ -331,9 +317,6 @@ async function mkLoad(app){
   res.querySelectorAll('#mk-body .cinfo').forEach(el => el.onclick = () =>
     R.showCardInfo(el.dataset.name, undefined, el.dataset.set ? {set: el.dataset.set, cn: el.dataset.cn} : null));
   res.querySelectorAll('canvas.spark').forEach(cv => drawSpark(cv, JSON.parse(cv.dataset.spark || '[]')));
-  fetchImages(j.rows.map(r => r.sfid)).then(() => {
-    res.querySelectorAll('img.mkimg').forEach(im => { const u = imgOf(im.dataset.sf); if(u.s) im.src = u.s; if(u.l) im.dataset.zoom = u.l; });
-  });
 }
 
 /* ---------- vue principale ---------- */
@@ -368,7 +351,24 @@ function vMarket(app){
   app.querySelectorAll('[data-mode]').forEach(el => el.onclick = () => { mk.mode = el.dataset.mode; saveMk(); vMarket(app); });
   if(mk.mode !== 'cartes') return;
 
-  const go = () => { mk.page = 1; saveMk(); mkLoad(app); };
+  const go = async () => {
+    const raw = mk.name.trim();
+    // nom localisé (Foudre…) -> nom anglais, comme la Recherche Avancée ; si la saisie a déjà
+    // des hits en autocomplete anglais, on la garde telle quelle (recherche partielle)
+    if(raw && !/[:()"<>=\-]/.test(raw)){
+      try{
+        const ja = await sfFetch('https://api.scryfall.com/cards/autocomplete?q=' + encodeURIComponent(raw));
+        if(!ja.data || !ja.data.length){
+          const names = await sfAutocomplete(raw);
+          if(names.length){
+            const exact = names.find(n => norm(n) === norm(raw)) || names.find(n => !n.includes('//')) || names[0];
+            if(norm(exact) !== norm(raw)){ mk.name = exact; const ni = app.querySelector('#mk-name'); if(ni) ni.value = exact; }
+          }
+        }
+      }catch(e){}
+    }
+    mk.page = 1; saveMk(); mkLoad(app);
+  };
 
   // nom de carte + autocomplétion multilingue (comme la recherche avancée)
   const nameIn = app.querySelector('#mk-name'), nsugg = app.querySelector('#mk-namesugg');
@@ -432,13 +432,14 @@ function vMarket(app){
   document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
 
   app.querySelector('#mk-cmc').onchange = e => { mk.cmc = e.target.value; };
-  app.querySelector('#mk-reserved').onchange = e => { mk.reserved = e.target.checked; };
-  app.querySelector('#mk-coll').onchange = e => { mk.coll = e.target.checked; };
-  app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.checked; };
+  app.querySelector('#mk-reserved').onchange = e => { mk.reserved = e.target.checked; go(); };
+  app.querySelector('#mk-coll').onchange = e => { mk.coll = e.target.checked; go(); };
+  app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.checked; go(); };
 
   const setSel = app.querySelector('#mk-set');
   sfSets().then(list => {
     const sorted = list.filter(s => !s.digital).slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    setNameMap = Object.fromEntries(sorted.map(s => [s.code, s.name]));
     setSel.innerHTML = '<option value="">Extension : toutes</option>' + sorted.map(s => `<option value="${s.code}" ${mk.set===s.code?'selected':''}>${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
   }).catch(() => {});
   setSel.onchange = e => { mk.set = e.target.value; };

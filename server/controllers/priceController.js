@@ -6,7 +6,7 @@ import path from 'node:path';
 import { getPricesDb, pricesAvailable, blobPoints, blobAt, dayStr, todayOrdinal } from '../utils/pricesDb.js';
 import { loadState } from './stateController.js';
 import { sendJson } from '../utils/http.js';
-import { ROOT, PRICES_DB } from '../utils/paths.js';
+import { ROOT, PRICES_DB, DB_PATH } from '../utils/paths.js';
 
 const MARKET_WINDOWS = { '1w': 7, '1m': 30, '1y': 365, '3y': 1095, '5y': 1825, '10y': 3650, 'rel': null };
 const MARKET_TTL = 12 * 3600;
@@ -129,158 +129,231 @@ export function apiMarket(req, res) {
   sendJson(res, 200, out);
 }
 
-/* GET /api/market/cards — vue "cartes" du Marché : filtres + TRI GLOBAL + pagination sur prices.db.
-   ?from=&to= (ordinals) &name=&artist=&colors=W,U&types=&cmc=&set=&reserved=1&scope=all|collection
-   &sort=name|set|rarity|was|now|pct &dir=asc|desc &page=1 &limit=25
-   -> { ok, from, to, total, page, pages, kpi, hist, index:[[date,val]], rows:[{...,spark}] }
-   Les cartes sans prix à "from" sont triées en dernier. Cache 12h par requête (max 8 entrées). */
-const marketCardsCache = new Map();
-const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, special: 3, mythic: 4, bonus: 5 };
-export function apiMarketCards(req, res) {
-  if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
-  const q = req.query;
-  const from = parseInt(q.from, 10) || 0;
-  const to = Math.max(from, parseInt(q.to, 10) || todayOrdinal());
-  if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
-  const key = JSON.stringify({ ...q, from, to });
-  const nowS = Date.now() / 1000;
-  const mtime = fs.statSync(PRICES_DB).mtimeMs;   // une mise à jour de prices.db invalide le cache
-  const hit = marketCardsCache.get(key);
-  if (hit && hit.mtime === mtime && nowS - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
-  if (marketCardsCache.size > 8) marketCardsCache.delete(marketCardsCache.keys().next().value);
-
-  const c = getPricesDb();
-  const where = ['(s.last_norm IS NOT NULL OR s.last_foil IS NOT NULL)'];
-  const args = [];
-  const name = String(q.name || '').trim().toLowerCase();
-  if (name) { where.push('LOWER(c.name) LIKE ?'); args.push('%' + name + '%'); }
-  const artist = String(q.artist || '').trim().toLowerCase();
-  if (artist) { where.push('LOWER(c.artist) LIKE ?'); args.push('%' + artist + '%'); }
-  if (q.set) { where.push('c."set" = ?'); args.push(String(q.set).toUpperCase()); }
-  if (String(q.reserved) === '1' || String(q.reserved) === 'true') where.push('c.reserved = 1');
-  if (String(q.foil) === '1') where.push('s.foil IS NOT NULL');         // que les versions foil
-  else if (String(q.foil) === '0') where.push('s.normal IS NOT NULL');   // que les non-foil
-  const cols = String(q.colors || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-  if (cols.length) {
-    where.push('(' + cols.map(() => 'c.colors LIKE ?').join(' OR ') + ')');
-    args.push(...cols.map(c => '%,' + c + ',%'));
-  }
-  const types = String(q.types || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  if (types.length) {
-    where.push('(' + types.map(() => 'LOWER(c.type_line) LIKE ?').join(' OR ') + ')');
-    args.push(...types.map(t => '%' + t + '%'));
-  }
-  if (q.cmc !== undefined && q.cmc !== '') {
-    if (String(q.cmc) === '7+') where.push('c.cmc >= 7');
-    else { where.push('c.cmc = ?'); args.push(parseFloat(q.cmc)); }
-  }
-  const sql = `WITH picked AS (
-      SELECT LOWER(name) AS lname, "set" AS st, cn,
-             COALESCE(MIN(CASE WHEN lang='English' THEN scryfall_id END), MIN(scryfall_id)) AS sfid
-      FROM cards GROUP BY LOWER(name), "set", cn)
-    SELECT c.scryfall_id, c.name, c."set", c.cn, c.rarity, c.lang, s.normal, s.foil
-    FROM picked p JOIN cards c ON c.scryfall_id = p.sfid JOIN series s ON s.uuid = c.uuid
-    WHERE ${where.join(' AND ')}`;
-  const rows = c.prepare(sql).all(...args);
-
-  const wantFoil = String(q.foil) === '1' ? true : String(q.foil) === '0' ? false : null;   // null = normal + foil
-  const scopeColl = (q.scope || 'all') === 'collection';
-  const collMap = new Map();   // "SET|CN|F" (F=1 si l'entrée est foil) -> qté possédée, PAR FINITION
-  for (const e of collectionEntries()) {
-    const sc = (e.set || '').toUpperCase();
-    if (!sc) continue;
-    const k = sc + '|' + (e.cn != null ? String(e.cn) : '') + '|' + (e.foil ? 1 : 0);
-    collMap.set(k, (collMap.get(k) || 0) + (e.qty || 1));
-  }
-  // une ligne par FINITION (normal et/ou foil) : chaque ligne a son propre blob de prix
-  const out = [];
-  for (const r of rows) {
-    const push = (blob, foil) => {
-      const was = blobAt(blob, from);
-      const nowP = blobAt(blob, to);
-      const wasEff = (was != null && was >= 0.1) ? was : null;   // points aberrants MTGJSON (< 0,10 EUR) = pas de prix fiable
-      const key = (r.set || '').toUpperCase() + '|' + (r.cn != null ? String(r.cn) : '') + '|' + (foil ? 1 : 0);
-      const qty = collMap.get(key) || 0;
-      if (scopeColl && qty <= 0) return;   // "Dans ma collection" : seules les finitions réellement possédées
-      const flat = (wasEff != null && nowP != null) ? round2(nowP - wasEff) : null;
-      out.push({ sfid: r.scryfall_id, name: r.name, set: r.set, cn: r.cn, rarity: r.rarity, lang: r.lang, foil, qty,
-                 was: was != null ? round2(was) : null, now: nowP != null ? round2(nowP) : null,
-                 pct: (wasEff && nowP) ? nowP / wasEff - 1 : null, flat,
-                 impact: flat != null ? round2(flat * qty) : null, _wasEff: wasEff != null, _blob: blob });
-    };
-    if (r.normal && wantFoil !== true) push(r.normal, false);
-    if (r.foil && wantFoil !== false) push(r.foil, true);
-  }
-  const sort = q.sort || 'pct';
-  const dir = q.dir === 'asc' ? 1 : -1;
-  const cmp = ({
-    name: (a, b) => String(a.name).localeCompare(String(b.name)),
-    set: (a, b) => String(a.set).localeCompare(String(b.set)) || String(a.name).localeCompare(String(b.name)),
-    rarity: (a, b) => (RARITY_ORDER[a.rarity] ?? 9) - (RARITY_ORDER[b.rarity] ?? 9) || String(a.name).localeCompare(String(b.name)),
-    was: (a, b) => (a.was ?? -1) - (b.was ?? -1),
-    now: (a, b) => (a.now ?? -1) - (b.now ?? -1),
-    pct: (a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity),
-    flat: (a, b) => (a.flat ?? -Infinity) - (b.flat ?? -Infinity),
-    impact: (a, b) => (a.impact ?? -Infinity) - (b.impact ?? -Infinity),
-    qty: (a, b) => (a.qty || 0) - (b.qty || 0),
-    foil: (a, b) => (a.foil ? 1 : 0) - (b.foil ? 1 : 0) || String(a.name).localeCompare(String(b.name)),
-  })[sort] || ((a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity));
-  out.sort((a, b) => {
-    const aNo = !a._wasEff, bNo = !b._wasEff;
-    if (aNo !== bNo) return aNo ? 1 : -1;
-    if (aNo && bNo) return (b.now ?? -1) - (a.now ?? -1);
-    return cmp(a, b) * dir;
-  });
-
-  const pcts = out.filter(r => r.pct != null).map(r => r.pct).sort((a, b) => a - b);
-  const n = out.length;
-  const up = pcts.filter(p => p > 0).length, down = pcts.filter(p => p < 0).length;
-  const median = pcts.length ? pcts[Math.floor(pcts.length / 2)] : null;
-  const avg = pcts.length ? pcts.reduce((s, p) => s + p, 0) / pcts.length : null;
-  let hist = [];
-  if (pcts.length) {
-    const lo = pcts[0], hi = pcts[pcts.length - 1], B = 12, span = Math.max(1e-9, hi - lo);
-    hist = Array.from({ length: B }, (_, i) => ({ lo: lo + span * i / B, hi: lo + span * (i + 1) / B, n: 0 }));
-    for (const p of pcts) hist[Math.min(B - 1, Math.floor((p - lo) / span * B))].n++;
-  }
-
-  const daysIn = allHistorizedDays().days.filter(d => d >= from && d <= to);
-  const idxSums = new Array(daysIn.length).fill(0), idxCnt = new Array(daysIn.length).fill(0);
-  const idxSample = out.length > 20000 ? out.filter((_, i) => i % Math.ceil(out.length / 20000) === 0) : out;
-  for (const r of idxSample) {
-    if (!r._wasEff || !r._blob) continue;
-    const pts = blobPoints(r._blob);
-    let k = 0;
-    for (let i = 0; i < daysIn.length; i++) {
-      const d = daysIn[i];
-      while (k < pts.length && pts[k][0] <= d) k++;
-      if (k > 0) { idxSums[i] += pts[k - 1][1] / (r.was >= 0.1 ? r.was : pts[k - 1][1]) * 100; idxCnt[i]++; }
-    }
-  }
-  const index = daysIn.map((d, i) => [dayStr(d), idxCnt[i] ? round2(idxSums[i] / idxCnt[i]) : null]).filter(p => p[1] != null);
-
-  const limit = Math.min(100, Math.max(5, parseInt(q.limit, 10) || 25));
-  const pages = Math.max(1, Math.ceil(n / limit));
-  const page = Math.min(pages, Math.max(1, parseInt(q.page, 10) || 1));
-  const pageRows = out.slice((page - 1) * limit, page * limit).map(r => {
-    let spark = [];
-    if (r._blob) {
-      const pts = blobPoints(r._blob).filter(p => p[0] >= from && p[0] <= to);
-      const stride = Math.max(1, Math.ceil(pts.length / 60));
-      spark = pts.filter((_, i) => i % stride === 0).map(p => [dayStr(p[0]), round2(p[1])]);
-      if (pts.length) { const last = pts[pts.length - 1]; if (spark[spark.length - 1][0] !== dayStr(last[0])) spark.push([dayStr(last[0]), round2(last[1])]); }
-    }
-    const { _blob, _wasEff, ...row } = r;
-    return { ...row, spark };
-  });
-
-  const result = { ok: true, from: dayStr(from), to: dayStr(to), total: n, page, pages, limit,
-    kpi: { n, up, down, flat: pcts.length - up - down, median: median != null ? round2(median * 100) / 100 : null, avg: avg != null ? round2(avg * 100) / 100 : null },
-    hist, index, rows: pageRows };
-  marketCardsCache.set(key, { ts: nowS, mtime, result });
-  sendJson(res, 200, result);
+/* GET /api/market/cards — vue "cartes" du Marché.
+   Recherche dans la table LOCALE prices.db.cards (toutes les cartes, une ligne par impression
+   (name,set,cn) préférant l'anglais), filtres façon Scryfall ; prix lus dans series (joint par uuid).
+   ?from=&to= (ordinals) &name=&artist=&colors=W,U&types=&cmc=&set=&reserved=1&foil=1
+   &scope=all|collection &sort=name|set|rarity|qty|was|now|pct|flat|impact|foil &dir=&page=&limit=
+   -> { ok, from, to, total, page, pages, kpi, hist, index:[[date,val]], rows:[{...,spark,img,img_lg}] }
+   Une ligne par FINITION ayant un blob de prix (normal et/ou foil ; les 2 -> 2 lignes,
+   une seule -> 1 ligne, aucune série -> 1 ligne sans prix, triée en dernier).
+   Cache 12h par requête, invalidé par le mtime de prices.db ET de mtg_data.db (collection). */
+const marketCardsCache = new Map();
+const marketRunning = new Map();   // key -> Promise<result> : évite les calculs en double
+const marketStatus = { running: false, phase: '', page: 0, cards: 0, since: 0 };
+const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, special: 3, mythic: 4, bonus: 5 };
+
+/* GET /api/market/cards/status — état du calcul en cours (poll côté client) */
+export function apiMarketCardsStatus(req, res) {
+  sendJson(res, 200, { ok: true, ...marketStatus });
+}
+
+/* URL d'image Scryfall dérivée du scryfall_id (uuid) : small (vignette) / large (zoom hover) */
+function scryImg(sfid, size) {
+  if (!sfid) return '';
+  return `https://cards.scryfall.io/${size}/front/${sfid.slice(0, 2)}/${sfid.slice(2, 4)}/${sfid}.jpg`;
+}
+
+/* résout une entrée collection -> scryfall_id de la card prices.db portant le blob de la
+   finition voulue : (set,cn) exact d'abord, sinon même (set,nom) avec le bon blob
+   (ex. promo foil 7ED 89★ sans série -> retombe sur 89 qui a un blob foil) */
+function resolveCollSfid(c, e) {
+  const sc = (e.set || '').toUpperCase();
+  if (!sc) return null;
+  const blobCond = e.foil ? 's.foil IS NOT NULL' : 's.normal IS NOT NULL';
+  if (e.cn != null) {
+    const r = c.prepare('SELECT c.scryfall_id FROM cards c JOIN series s ON s.uuid=c.uuid ' +
+      'WHERE c."set"=? AND c.cn=? AND ' + blobCond + " ORDER BY (c.lang='English') DESC LIMIT 1").get(sc, String(e.cn));
+    if (r) return r.scryfall_id;
+  }
+  const r2 = c.prepare('SELECT c.scryfall_id FROM cards c JOIN series s ON s.uuid=c.uuid ' +
+    'WHERE c."set"=? AND LOWER(c.name)=LOWER(?) AND ' + blobCond + " ORDER BY (c.lang='English') DESC LIMIT 1").get(sc, e.name);
+  return r2 ? r2.scryfall_id : null;
+}
+
+function emptyMarketResult(from, to, limit) {
+  return { ok: true, from: dayStr(from), to: dayStr(to), total: 0, page: 1, pages: 1, limit,
+    kpi: { n: 0, up: 0, down: 0, flat: 0, median: null, avg: null }, hist: [], index: [], rows: [] };
+}
+
+function computeMarketCards(q, from, to) {
+  const c = getPricesDb();
+  const entries = collectionEntries();
+  const scopeColl = (q.scope || 'all') === 'collection';
+  marketStatus.running = true; marketStatus.since = Date.now(); marketStatus.phase = 'recherche'; marketStatus.page = 0; marketStatus.cards = 0;
+  try {
+    // ---- filtres sur la table locale cards (sémeantique façon Scryfall) ----
+    const where = [];
+    const args = [];
+    const name = String(q.name || '').trim().toLowerCase();
+    if (name) { where.push('LOWER(c.name) LIKE ?'); args.push('%' + name + '%'); }
+    const artist = String(q.artist || '').trim().toLowerCase();
+    if (artist) { where.push('LOWER(c.artist) LIKE ?'); args.push('%' + artist + '%'); }
+    if (q.set) { where.push('c."set" = ?'); args.push(String(q.set).toUpperCase()); }
+    if (String(q.reserved) === '1' || String(q.reserved) === 'true') where.push('c.reserved = 1');
+    const cols = String(q.colors || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (cols.length) {
+      where.push('(' + cols.map(() => 'c.colors LIKE ?').join(' OR ') + ')');   // c:W or c:U
+      args.push(...cols.map(col => '%,' + col + ',%'));
+    }
+    const types = String(q.types || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (types.length) {
+      where.push('(' + types.map(() => 'LOWER(c.type_line) LIKE ?').join(' OR ') + ')');   // t:X or t:Y
+      args.push(...types.map(t => '%' + t + '%'));
+    }
+    if (q.cmc !== undefined && String(q.cmc) !== '') {
+      if (String(q.cmc) === '7+') where.push('c.cmc >= 7');
+      else { where.push('c.cmc = ?'); args.push(parseFloat(q.cmc)); }
+    }
+    if (String(q.foil) === '1') where.push('s.foil IS NOT NULL');         // que les versions foil
+    else if (String(q.foil) === '0') where.push('s.normal IS NOT NULL');   // que les non-foil
+
+    // une ligne par impression (name,set,cn), version anglaise préférée ; series en LEFT JOIN
+    // (les cartes sans prix restent visibles, sans évolution, triées en dernier)
+    const sql = `WITH picked AS (
+        SELECT LOWER(name) AS lname, "set" AS st, cn,
+               COALESCE(MIN(CASE WHEN lang='English' THEN scryfall_id END), MIN(scryfall_id)) AS sfid
+        FROM cards GROUP BY LOWER(name), "set", cn)
+      SELECT c.scryfall_id, c.name, c."set", c.cn, c.rarity, c.lang, s.normal, s.foil
+      FROM picked p JOIN cards c ON c.scryfall_id = p.sfid LEFT JOIN series s ON s.uuid = c.uuid
+      WHERE ${where.length ? where.join(' AND ') : '1=1'}`;
+    const rows = c.prepare(sql).all(...args);
+    marketStatus.phase = 'prix'; marketStatus.cards = rows.length;
+
+    // qté collection par (scryfall_id, finition), entrée résolue via prices.db
+    const collMap = new Map();
+    for (const e of entries) {
+      if ((e.qty || 1) <= 0) continue;
+      const sfid = resolveCollSfid(c, e);
+      if (!sfid) continue;
+      const k = sfid + '|' + (e.foil ? 1 : 0);
+      collMap.set(k, (collMap.get(k) || 0) + (e.qty || 1));
+    }
+
+    const wantFoil = String(q.foil) === '1' ? true : String(q.foil) === '0' ? false : null;
+    const out = [];
+    for (const r of rows) {
+      const hasNormal = !!r.normal, hasFoil = !!r.foil;
+      if (wantFoil === true && !hasFoil) continue;    // filtre "que foil" : il faut un prix foil
+      if (wantFoil === false && !hasNormal) continue;
+      const base = { sfid: r.scryfall_id, name: r.name, set: r.set, cn: r.cn, rarity: r.rarity, lang: r.lang,
+        img: scryImg(r.scryfall_id, 'small'), img_lg: scryImg(r.scryfall_id, 'large') };
+      const push = (blob, foil) => {
+        const qty = collMap.get(r.scryfall_id + '|' + (foil ? 1 : 0)) || 0;
+        if (scopeColl && qty <= 0) return;   // "Dans ma collection" : seules les finitions possédées
+        const was = blob ? blobAt(blob, from) : null;
+        const nowP = blob ? blobAt(blob, to) : null;
+        const wasEff = (was != null && was >= 0.1) ? was : null;   // points aberrants MTGJSON (< 0,10 EUR)
+        const flat = (wasEff != null && nowP != null) ? round2(nowP - wasEff) : null;
+        out.push({ ...base, foil, qty,
+          was: was != null ? round2(was) : null, now: nowP != null ? round2(nowP) : null,
+          pct: (wasEff && nowP) ? nowP / wasEff - 1 : null, flat,
+          impact: flat != null ? round2(flat * qty) : null, _wasEff: wasEff != null, _blob: blob });
+      };
+      if (!hasNormal && !hasFoil) { if (wantFoil !== true) push(null, false); continue; }   // pas de prix -> 1 ligne
+      if (wantFoil === true) { if (hasFoil) push(r.foil, true); }
+      else if (wantFoil === false) { if (hasNormal) push(r.normal, false); else if (hasFoil) push(r.foil, true); }
+      else {   // normal + foil si les 2 ont un prix, sinon la seule finition disponible
+        if (hasNormal) push(r.normal, false);
+        if (hasFoil) push(r.foil, true);
+      }
+    }
+
+    const sort = q.sort || 'pct';
+    const dir = q.dir === 'asc' ? 1 : -1;
+    const cmp = ({
+      name: (a, b) => String(a.name).localeCompare(String(b.name)),
+      set: (a, b) => String(a.set || '').localeCompare(String(b.set || '')) || String(a.name).localeCompare(String(b.name)),
+      rarity: (a, b) => (RARITY_ORDER[a.rarity] ?? 9) - (RARITY_ORDER[b.rarity] ?? 9) || String(a.name).localeCompare(String(b.name)),
+      was: (a, b) => (a.was ?? -1) - (b.was ?? -1),
+      now: (a, b) => (a.now ?? -1) - (b.now ?? -1),
+      pct: (a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity),
+      flat: (a, b) => (a.flat ?? -Infinity) - (b.flat ?? -Infinity),
+      impact: (a, b) => (a.impact ?? -Infinity) - (b.impact ?? -Infinity),
+      qty: (a, b) => (a.qty || 0) - (b.qty || 0),
+      foil: (a, b) => (a.foil ? 1 : 0) - (b.foil ? 1 : 0) || String(a.name).localeCompare(String(b.name)),
+    })[sort] || ((a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity));
+    out.sort((a, b) => {
+      const aNo = !a._wasEff, bNo = !b._wasEff;
+      if (aNo !== bNo) return aNo ? 1 : -1;          // sans prix à "from" -> toujours en dernier
+      if (aNo && bNo) return (b.now ?? -1) - (a.now ?? -1);
+      return cmp(a, b) * dir;
+    });
+
+    const pcts = out.filter(r => r.pct != null).map(r => r.pct).sort((a, b) => a - b);
+    const n = out.length;
+    const up = pcts.filter(p => p > 0).length, down = pcts.filter(p => p < 0).length;
+    const median = pcts.length ? pcts[Math.floor(pcts.length / 2)] : null;
+    const avg = pcts.length ? pcts.reduce((s, p) => s + p, 0) / pcts.length : null;
+    let hist = [];
+    if (pcts.length) {
+      const lo = pcts[0], hi = pcts[pcts.length - 1], B = 12, span = Math.max(1e-9, hi - lo);
+      hist = Array.from({ length: B }, (_, i) => ({ lo: lo + span * i / B, hi: lo + span * (i + 1) / B, n: 0 }));
+      for (const p of pcts) hist[Math.min(B - 1, Math.floor((p - lo) / span * B))].n++;
+    }
+
+    const daysIn = allHistorizedDays().days.filter(d => d >= from && d <= to);
+    const idxSums = new Array(daysIn.length).fill(0), idxCnt = new Array(daysIn.length).fill(0);
+    const idxSample = out.length > 20000 ? out.filter((_, i) => i % Math.ceil(out.length / 20000) === 0) : out;
+    for (const r of idxSample) {
+      if (!r._wasEff || !r._blob) continue;
+      const pts = blobPoints(r._blob);
+      let k = 0;
+      for (let i = 0; i < daysIn.length; i++) {
+        const d = daysIn[i];
+        while (k < pts.length && pts[k][0] <= d) k++;
+        if (k > 0) { idxSums[i] += pts[k - 1][1] / (r.was >= 0.1 ? r.was : pts[k - 1][1]) * 100; idxCnt[i]++; }
+      }
+    }
+    const index = daysIn.map((d, i) => [dayStr(d), idxCnt[i] ? round2(idxSums[i] / idxCnt[i]) : null]).filter(p => p[1] != null);
+
+    const limit = Math.min(100, Math.max(5, parseInt(q.limit, 10) || 25));
+    const pages = Math.max(1, Math.ceil(n / limit));
+    const page = Math.min(pages, Math.max(1, parseInt(q.page, 10) || 1));
+    const pageRows = out.slice((page - 1) * limit, page * limit).map(r => {
+      let spark = [];
+      if (r._blob) {
+        const pts = blobPoints(r._blob).filter(p => p[0] >= from && p[0] <= to);
+        const stride = Math.max(1, Math.ceil(pts.length / 60));
+        spark = pts.filter((_, i) => i % stride === 0).map(p => [dayStr(p[0]), round2(p[1])]);
+        if (pts.length) { const last = pts[pts.length - 1]; if (spark[spark.length - 1][0] !== dayStr(last[0])) spark.push([dayStr(last[0]), round2(last[1])]); }
+      }
+      const { _blob, _wasEff, ...row } = r;
+      return { ...row, spark };
+    });
+
+    return { ok: true, from: dayStr(from), to: dayStr(to), total: n, page, pages, limit,
+      kpi: { n, up, down, flat: pcts.length - up - down, median: median != null ? round2(median * 100) / 100 : null, avg: avg != null ? round2(avg * 100) / 100 : null },
+      hist, index, rows: pageRows };
+  } finally {
+    marketStatus.running = false; marketStatus.phase = '';
+  }
+}
+
+export function apiMarketCards(req, res) {
+  const q = req.query;
+  const from = parseInt(q.from, 10) || 0;
+  const to = Math.max(from, parseInt(q.to, 10) || todayOrdinal());
+  if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
+  if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
+  // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
+  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + fs.statSync(DB_PATH).mtimeMs;
+  const key = mtime + '|' + JSON.stringify({ ...q, from, to });
+  const nowS = Date.now() / 1000;
+  const hit = marketCardsCache.get(key);
+  if (hit && nowS - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
+  if (marketCardsCache.size > 8) marketCardsCache.delete(marketCardsCache.keys().next().value);
+  let p = marketRunning.get(key);
+  if (!p) {
+    p = Promise.resolve().then(() => computeMarketCards(q, from, to));
+    marketRunning.set(key, p);
+    p.finally(() => marketRunning.delete(key)).catch(() => {});
+  }
+  p.then(result => {
+    marketCardsCache.set(key, { ts: nowS, result });
+    sendJson(res, 200, result);
+  }).catch(e => sendJson(res, 502, { ok: false, error: String((e && e.message) || e) }));
 }
-
 /* Valorisation de la collection : maintenant et aux fenêtres passées */
 /* Valeur totale de CHAQUE extension en une seule requête SQL depuis prices.db (cache 12h).
    Équivalent à la somme des prix Scryfall par set, mais instantané : pas d'appel API externe. */
