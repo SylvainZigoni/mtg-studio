@@ -17,7 +17,7 @@ import { loadPriceDays, mountPriceTimeline, priceDays, frOfDay } from '../core/p
    ============================================================ */
 let mk = Object.assign({
   mode: 'cartes', name: '', artist: '', colors: [], types: [], cmc: '', set: '',
-  reserved: false, coll: false, sort: 'pct', dir: 'desc', page: 1, limit: 25,
+  reserved: false, coll: false, foil: false, sort: 'pct', dir: 'desc', page: 1, limit: 25,
 }, store.get('mtg_market', {}));
 // migration : l'ancien filtre "type" (select unique) devient "types" (cases à cocher multiples)
 if (!Array.isArray(mk.types)) mk.types = mk.type ? [mk.type] : [];
@@ -36,6 +36,13 @@ function rarityDotHTML(rarity){
 const pctColor = v => v == null ? 'var(--muted)' : (v >= 0 ? 'var(--ok)' : 'var(--bad)');
 
 const imgCache = store.get('mtg_mk_imgs', {}) || {};
+/* imgCache[id] = { s: url small (vignette), l: url large (zoom hover) } — ancien format string migré à la volée */
+function imgOf(id){
+  const v = imgCache[id];
+  if(!v) return { s: '', l: '' };
+  if(typeof v === 'string') return { s: v, l: v };
+  return { s: v.s || '', l: v.l || v.s || '' };
+}
 async function fetchImages(sfids){
   const todo = [...new Set(sfids.filter(id => id && !imgCache[id]))];
   for(let i = 0; i < todo.length; i += 75){
@@ -45,8 +52,11 @@ async function fetchImages(sfids){
         body: JSON.stringify({ identifiers: todo.slice(i, i + 75).map(id => ({ id })) }),
       });
       const j = await r.json();
-      (j.data || []).forEach(c => { imgCache[c.id] = (c.image_uris && c.image_uris.small) || (c.card_faces && c.card_faces[0] && c.card_faces[0].image_uris && c.card_faces[0].image_uris.small) || null; });
-      todo.slice(i, i + 75).forEach(id => { if (!(id in imgCache)) imgCache[id] = null; });
+      (j.data || []).forEach(c => {
+        const face = c.image_uris || (c.card_faces && c.card_faces[0] && c.card_faces[0].image_uris) || {};
+        imgCache[c.id] = { s: face.small || null, l: face.large || face.normal || face.small || null };
+      });
+      todo.slice(i, i + 75).forEach(id => { if (!(id in imgCache)) imgCache[id] = { s: null, l: null }; });
     }catch(e){}
   }
   const keys = Object.keys(imgCache);
@@ -84,6 +94,9 @@ function filtersHTML(){
     </label>
     <label class="row" style="gap:6px" title="Ne rechercher que les cartes de ma collection">
       <input type="checkbox" id="mk-coll" ${mk.coll?'checked':''}> Dans ma collection
+    </label>
+    <label class="row" style="gap:6px" title="Ne rechercher que les versions foil">
+      <input type="checkbox" id="mk-foil" ${mk.foil?'checked':''}> Foil
     </label>
     <button class="btn" id="mk-go">Rechercher</button>
     <button class="btn ghost" id="mk-reset">Réinitialiser</button>
@@ -250,6 +263,7 @@ function mkQuery(){
   if(mk.set) qs.set('set', mk.set);
   if(mk.reserved) qs.set('reserved', '1');
   if(mk.coll) qs.set('scope', 'collection');
+  if(mk.foil) qs.set('foil', '1');
   return qs.toString();
 }
 
@@ -260,9 +274,10 @@ function tableHTML(j){
   return `<table id="mk-table"><thead><tr>
     <th style="width:76px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('rarity','Rareté',90)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
   </tr></thead><tbody id="mk-body">
-  ${j.rows.map(r => `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
-    <td><img class="collthumb mkimg" data-sf="${r.sfid||''}" src="${imgCache[r.sfid]||''}" alt=""></td>
-    <td><div class="cellname">${rarityDotHTML(r.rarity)}<span class="link" data-nm="${esc(r.name)}">${esc(r.name)}</span></div></td>
+  ${j.rows.map(r => { const im = imgOf(r.sfid); return `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
+    <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${im.l}" src="${im.s}" alt=""></td>
+    <td><div class="cellname">${rarityDotHTML(r.rarity)}<span class="link cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}">${esc(r.name)}</span></div>
+        <div class="pillrow">${r.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}</div></td>
     <td class="hint">${esc((r.set||'').toUpperCase())}${r.cn?` · ${esc(String(r.cn))}`:''}</td>
     <td class="hint">${RARITY_FR[r.rarity]||r.rarity||'—'}</td>
     <td>${r.qty>0?`<span class="pill infopill" title="Exemplaires dans ma collection">×${r.qty}</span>`:'<span class="hint">—</span>'}</td>
@@ -272,7 +287,7 @@ function tableHTML(j){
     <td class="p" style="color:${pctColor(r.flat)};font-weight:700">${r.flat==null?'—':((r.flat>=0?'+':'')+eur(r.flat))}</td>
     <td class="p" style="color:${pctColor(r.impact)};font-weight:700" title="Évolution € × qté possédée">${r.impact==null?'—':((r.impact>=0?'+':'')+eur(r.impact))}</td>
     <td><canvas class="spark" data-spark="${esc(JSON.stringify(r.spark))}"></canvas></td>
-  </tr>`).join('')}
+  </tr>`;}).join('')}
   </tbody></table>`;
 }
 
@@ -313,10 +328,11 @@ async function mkLoad(app){
     else { mk.sort = s; mk.dir = (s === 'name' || s === 'set' || s === 'rarity') ? 'asc' : 'desc'; }
     mk.page = 1; saveMk(); mkLoad(app);
   });
-  res.querySelectorAll('#mk-body .link').forEach(el => el.onclick = () => R.showCardInfo(el.dataset.nm));
+  res.querySelectorAll('#mk-body .cinfo').forEach(el => el.onclick = () =>
+    R.showCardInfo(el.dataset.name, undefined, el.dataset.set ? {set: el.dataset.set, cn: el.dataset.cn} : null));
   res.querySelectorAll('canvas.spark').forEach(cv => drawSpark(cv, JSON.parse(cv.dataset.spark || '[]')));
   fetchImages(j.rows.map(r => r.sfid)).then(() => {
-    res.querySelectorAll('img.mkimg').forEach(im => { const u = imgCache[im.dataset.sf]; if(u) im.src = u; });
+    res.querySelectorAll('img.mkimg').forEach(im => { const u = imgOf(im.dataset.sf); if(u.s) im.src = u.s; if(u.l) im.dataset.zoom = u.l; });
   });
 }
 
@@ -418,6 +434,7 @@ function vMarket(app){
   app.querySelector('#mk-cmc').onchange = e => { mk.cmc = e.target.value; };
   app.querySelector('#mk-reserved').onchange = e => { mk.reserved = e.target.checked; };
   app.querySelector('#mk-coll').onchange = e => { mk.coll = e.target.checked; };
+  app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.checked; };
 
   const setSel = app.querySelector('#mk-set');
   sfSets().then(list => {
@@ -428,7 +445,7 @@ function vMarket(app){
 
   app.querySelector('#mk-go').onclick = go;
   app.querySelector('#mk-reset').onclick = () => {
-    Object.assign(mk, { name:'', artist:'', colors:[], types:[], cmc:'', set:'', reserved:false, coll:false, page:1 });
+    Object.assign(mk, { name:'', artist:'', colors:[], types:[], cmc:'', set:'', reserved:false, coll:false, foil:false, page:1 });
     saveMk(); vMarket(app);
   };
 

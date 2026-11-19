@@ -158,6 +158,8 @@ export function apiMarketCards(req, res) {
   if (artist) { where.push('LOWER(c.artist) LIKE ?'); args.push('%' + artist + '%'); }
   if (q.set) { where.push('c."set" = ?'); args.push(String(q.set).toUpperCase()); }
   if (String(q.reserved) === '1' || String(q.reserved) === 'true') where.push('c.reserved = 1');
+  if (String(q.foil) === '1') where.push('s.foil IS NOT NULL');         // que les versions foil
+  else if (String(q.foil) === '0') where.push('s.normal IS NOT NULL');   // que les non-foil
   const cols = String(q.colors || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
   if (cols.length) {
     where.push('(' + cols.map(() => 'c.colors LIKE ?').join(' OR ') + ')');
@@ -172,11 +174,6 @@ export function apiMarketCards(req, res) {
     if (String(q.cmc) === '7+') where.push('c.cmc >= 7');
     else { where.push('c.cmc = ?'); args.push(parseFloat(q.cmc)); }
   }
-  if ((q.scope || 'all') === 'collection') {
-    const keys = collectionEntries().map(e => (e.set || '').toUpperCase() + '|' + (e.cn != null ? String(e.cn) : '')).filter(s => s !== '|');
-    if (keys.length) { where.push(`(c."set" || '|' || c.cn) IN (${keys.map(() => '?').join(',')})`); args.push(...keys); }
-    else where.push('0');
-  }
   const sql = `WITH picked AS (
       SELECT LOWER(name) AS lname, "set" AS st, cn,
              COALESCE(MIN(CASE WHEN lang='English' THEN scryfall_id END), MIN(scryfall_id)) AS sfid
@@ -186,23 +183,34 @@ export function apiMarketCards(req, res) {
     WHERE ${where.join(' AND ')}`;
   const rows = c.prepare(sql).all(...args);
 
-  const qtyMap = new Map();   // "SET|CN" -> qté possédée dans la collection (colonne Coll. + impact)
+  const wantFoil = String(q.foil) === '1' ? true : String(q.foil) === '0' ? false : null;   // null = normal + foil
+  const scopeColl = (q.scope || 'all') === 'collection';
+  const collMap = new Map();   // "SET|CN|F" (F=1 si l'entrée est foil) -> qté possédée, PAR FINITION
   for (const e of collectionEntries()) {
-    const k = (e.set || '').toUpperCase() + '|' + (e.cn != null ? String(e.cn) : '');
-    if (k !== '|') qtyMap.set(k, (qtyMap.get(k) || 0) + (e.qty || 1));
+    const sc = (e.set || '').toUpperCase();
+    if (!sc) continue;
+    const k = sc + '|' + (e.cn != null ? String(e.cn) : '') + '|' + (e.foil ? 1 : 0);
+    collMap.set(k, (collMap.get(k) || 0) + (e.qty || 1));
   }
-  const out = rows.map(r => {
-    const blob = r.normal || r.foil;
-    const was = blobAt(blob, from);
-    const nowP = blobAt(blob, to);
-    const wasEff = (was != null && was >= 0.1) ? was : null;   // points aberrants MTGJSON (< 0,10 EUR) = pas de prix fiable
-    const qty = qtyMap.get((r.set || '').toUpperCase() + '|' + (r.cn != null ? String(r.cn) : '')) || 0;
-    const flat = (wasEff != null && nowP != null) ? round2(nowP - wasEff) : null;
-    return { sfid: r.scryfall_id, name: r.name, set: r.set, cn: r.cn, rarity: r.rarity, lang: r.lang, qty,
-             was: was != null ? round2(was) : null, now: nowP != null ? round2(nowP) : null,
-             pct: (wasEff && nowP) ? nowP / wasEff - 1 : null, flat,
-             impact: flat != null ? round2(flat * qty) : null, _wasEff: wasEff != null, _blob: blob };
-  });
+  // une ligne par FINITION (normal et/ou foil) : chaque ligne a son propre blob de prix
+  const out = [];
+  for (const r of rows) {
+    const push = (blob, foil) => {
+      const was = blobAt(blob, from);
+      const nowP = blobAt(blob, to);
+      const wasEff = (was != null && was >= 0.1) ? was : null;   // points aberrants MTGJSON (< 0,10 EUR) = pas de prix fiable
+      const key = (r.set || '').toUpperCase() + '|' + (r.cn != null ? String(r.cn) : '') + '|' + (foil ? 1 : 0);
+      const qty = collMap.get(key) || 0;
+      if (scopeColl && qty <= 0) return;   // "Dans ma collection" : seules les finitions réellement possédées
+      const flat = (wasEff != null && nowP != null) ? round2(nowP - wasEff) : null;
+      out.push({ sfid: r.scryfall_id, name: r.name, set: r.set, cn: r.cn, rarity: r.rarity, lang: r.lang, foil, qty,
+                 was: was != null ? round2(was) : null, now: nowP != null ? round2(nowP) : null,
+                 pct: (wasEff && nowP) ? nowP / wasEff - 1 : null, flat,
+                 impact: flat != null ? round2(flat * qty) : null, _wasEff: wasEff != null, _blob: blob });
+    };
+    if (r.normal && wantFoil !== true) push(r.normal, false);
+    if (r.foil && wantFoil !== false) push(r.foil, true);
+  }
   const sort = q.sort || 'pct';
   const dir = q.dir === 'asc' ? 1 : -1;
   const cmp = ({
@@ -215,6 +223,7 @@ export function apiMarketCards(req, res) {
     flat: (a, b) => (a.flat ?? -Infinity) - (b.flat ?? -Infinity),
     impact: (a, b) => (a.impact ?? -Infinity) - (b.impact ?? -Infinity),
     qty: (a, b) => (a.qty || 0) - (b.qty || 0),
+    foil: (a, b) => (a.foil ? 1 : 0) - (b.foil ? 1 : 0) || String(a.name).localeCompare(String(b.name)),
   })[sort] || ((a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity));
   out.sort((a, b) => {
     const aNo = !a._wasEff, bNo = !b._wasEff;
