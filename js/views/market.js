@@ -1,22 +1,39 @@
 import { esc, eur, TYPES_LIST } from '../core/util.js';
+
 import { store } from '../core/store.js';
-import { sfSets } from '../core/scryfall.js';
+
+import { sfSets, sfAutocomplete, sfArtists } from '../core/scryfall.js';
+
 import { R } from '../core/registry.js';
+
 import { loadPriceDays, mountPriceTimeline, priceDays, frOfDay } from '../core/pricedb.js';
 
 /* ============================================================
    VUE MARCHÉ — évolutions de prix Cardmarket depuis prices.db
-   Vue "cartes" : filtres + jauge de dates + récap (KPI/histo/indice)
-   + table triable globalement (serveur) + sparklines + pagination.
+   Vue "cartes" : filtres (mêmes contrôles que la recherche avancée, sans jauge de prix)
+   + jauge de dates à 2 curseurs directement sur la timeline (priceline) + récap
+   (KPI/histo/indice) + table triable globalement (serveur, format liste collection).
    Vue "éditions" : à venir.
    ============================================================ */
 let mk = Object.assign({
-  mode: 'cartes', name: '', artist: '', colors: [], type: '', cmc: '', set: '',
+  mode: 'cartes', name: '', artist: '', colors: [], types: [], cmc: '', set: '',
   reserved: false, coll: false, sort: 'pct', dir: 'desc', page: 1, limit: 25,
 }, store.get('mtg_market', {}));
+// migration : l'ancien filtre "type" (select unique) devient "types" (cases à cocher multiples)
+if (!Array.isArray(mk.types)) mk.types = mk.type ? [mk.type] : [];
+delete mk.type;
+
 const saveMk = () => store.set('mtg_market', mk);
+
 const RARITY_FR = { common: 'Commune', uncommon: 'Peu commune', rare: 'Rare', mythic: 'Mythique', special: 'Spéciale', bonus: 'Bonus' };
-const CMC_OPTS = ['', '0', '1', '2', '3', '4', '5', '6', '7', '7+'];
+const RAR_COLORS = { mythic: '#B94421', rare: '#CCB473', uncommon: '#CECECE', common: '#2B2728' };
+const COLOR_CSS = { W: '#f4e8a6', U: '#6db3f2', B: '#b5a6f4', R: '#f26a6a', G: '#7ec97e' };
+
+function rarityDotHTML(rarity){
+  if (RAR_COLORS[rarity]) return `<span class="rarity-dot" style="background:${RAR_COLORS[rarity]};border-color:${RAR_COLORS[rarity]}" title="${esc(rarity)}"></span>`;
+  return '';
+}
+const pctColor = v => v == null ? 'var(--muted)' : (v >= 0 ? 'var(--ok)' : 'var(--bad)');
 
 const imgCache = store.get('mtg_mk_imgs', {}) || {};
 async function fetchImages(sfids){
@@ -37,44 +54,59 @@ async function fetchImages(sfids){
   store.set('mtg_mk_imgs', imgCache);
 }
 
+/* barre de filtres : mêmes contrôles que la page "Recherche avancée" (browse.js),
+   sans la jauge de prix — la période se règle avec les 2 curseurs de la priceline */
 function filtersHTML(){
   return `
-  <div class="panel" style="padding:10px 12px">
-    <div class="row" style="gap:8px;flex-wrap:wrap">
-      <input id="mk-name" placeholder="Nom de carte…" value="${esc(mk.name)}" style="min-width:180px">
-      <input id="mk-artist" placeholder="Artiste, ex: Rebecca Guay" value="${esc(mk.artist)}" style="min-width:180px">
-      <span class="row" style="gap:4px" id="mk-colors">${['W','U','B','R','G'].map(c => `<button class="pill ${mk.colors.includes(c)?'active':''}" data-c="${c}" style="width:30px;padding:2px 0;text-align:center">${c}</button>`).join('')}</span>
-      <select id="mk-type"><option value="">Type : tous</option>${TYPES_LIST.map(t => `<option ${mk.type===t?'selected':''}>${esc(t)}</option>`).join('')}</select>
-      <select id="mk-cmc"><option value="">Coût : tous</option>${CMC_OPTS.map(c => `<option value="${c}" ${mk.cmc===c?'selected':''}>${c===''?'tous':c}</option>`).join('')}</select>
+  <div class="filterbar">
+    <div class="suggbox" style="flex:1;min-width:260px">
+      <input type="text" id="mk-name" placeholder="Nom de carte (anglais ou français : Foudre, Lightning Bolt…)" autocomplete="off" value="${esc(mk.name)}" style="width:100%">
+      <div class="suggestions" id="mk-namesugg" style="display:none"></div>
     </div>
-    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
-      <select id="mk-set"><option value="">Extension : toutes</option></select>
-      <label class="row" style="gap:6px"><input type="checkbox" id="mk-reserved" ${mk.reserved?'checked':''}> Reserved List</label>
-      <label class="row" style="gap:6px"><input type="checkbox" id="mk-coll" ${mk.coll?'checked':''}> Dans ma collection</label>
-      <button class="btn" id="mk-go">Rechercher</button>
-      <button class="btn ghost" id="mk-reset">Réinitialiser</button>
+    <div class="suggbox" style="min-width:170px">
+      <input type="text" id="mk-artist" placeholder="Artiste, ex: Rebecca Guay" value="${esc(mk.artist)}" autocomplete="off" style="width:100%">
+      <div class="suggestions" id="mk-artistsugg" style="display:none"></div>
     </div>
+    <span class="colorpick" id="mk-colors">
+      ${['W','U','B','R','G'].map(c => `<span data-c="${c}" class="${mk.colors.includes(c)?'on':''}" style="color:${COLOR_CSS[c]}">${c}</span>`).join('')}
+    </span>
+    <div class="multisel" id="mk-types">
+      <button class="btn ghost" style="padding:6px 10px">Type : ${mk.types.length||'tous'} ▾</button>
+      <div class="opts">${TYPES_LIST.map(t => `<label><input type="checkbox" value="${t}" ${mk.types.includes(t)?'checked':''}> ${t}</label>`).join('')}</div>
+    </div>
+    <select id="mk-cmc">
+      <option value="">Coût : tous</option>
+      ${[0,1,2,3,4,5,6,'7+'].map(v => `<option value="${v}" ${String(mk.cmc)===String(v)?'selected':''}>CMC ${v}${v==='7+'?'+':''}</option>`).join('')}
+    </select>
+    <select id="mk-set"><option value="">Extension : toutes</option></select>
+    <label class="row" style="gap:6px" title="Ne rechercher que les cartes de la Reserved List">
+      <input type="checkbox" id="mk-reserved" ${mk.reserved?'checked':''}> Reserved List
+    </label>
+    <label class="row" style="gap:6px" title="Ne rechercher que les cartes de ma collection">
+      <input type="checkbox" id="mk-coll" ${mk.coll?'checked':''}> Dans ma collection
+    </label>
+    <button class="btn" id="mk-go">Rechercher</button>
+    <button class="btn ghost" id="mk-reset">Réinitialiser</button>
   </div>`;
 }
 
-/* jauge de dates à 2 curseurs, calée sur les jours historisés de prices.db */
+/* jauge de dates à 2 curseurs, superposée directement sur la timeline de #priceline
+   (calée sur les jours historisés de prices.db) ; les 2 dates choisies s'affichent dessous */
 function wireDateGauge(app){
   const D = priceDays(); if(!D) return;
   const days = D.days;                 // ordinals triés (jours avec >= 1 prix)
   const n = days.length;
-  const box = app.querySelector('#daterange'); if(!box) return;
+  const box = app.querySelector('#priceline'); if(!box) return;
   const i0 = Math.max(0, days.indexOf(mk.from ?? D.from));
   const i1 = Math.min(n - 1, Math.max(i0, days.indexOf(mk.to ?? D.to)));
   const rmin = box.querySelector('#dtmin'), rmax = box.querySelector('#dtmax');
-  const fill = box.querySelector('#dtfill'), lmin = box.querySelector('#dtminlab'), lmax = box.querySelector('#dtmaxlab');
+  const lmin = app.querySelector('#dtminlab'), lmax = app.querySelector('#dtmaxlab');
   rmin.max = rmax.max = String(n - 1);
   rmin.value = String(i0); rmax.value = String(i1);
   const paint = () => {
     const a = +rmin.value, b = +rmax.value;
-    fill.style.left = (a / (n - 1) * 100) + '%';
-    fill.style.width = Math.max(0, (b - a) / (n - 1) * 100) + '%';
-    lmin.textContent = frOfDay(days[a]);
-    lmax.textContent = frOfDay(days[b]);
+    lmin.textContent = frOfDay(days[Math.min(a, b)]);
+    lmax.textContent = frOfDay(days[Math.max(a, b)]);
     rmin.style.zIndex = a > b - 2 ? 5 : 3;
   };
   const apply = () => {
@@ -88,18 +120,6 @@ function wireDateGauge(app){
   rmin.addEventListener('change', apply);
   rmax.addEventListener('change', apply);
   paint();
-}
-
-function gaugeHTML(){
-  return `<div class="row" style="align-items:flex-end;gap:10px;margin:10px 0 4px">
-    <span class="hint" style="white-space:nowrap">Période :</span>
-    <div class="pricerange daterange" id="daterange" style="flex:1;min-width:0;width:auto">
-      <div class="pr-track"><div class="pr-fill" id="dtfill"></div></div>
-      <input type="range" id="dtmin" min="0" max="100" step="1" value="0">
-      <input type="range" id="dtmax" min="0" max="100" step="1" value="100">
-      <div class="pr-labs"><span id="dtminlab"></span><span id="dtmaxlab"></span></div>
-    </div>
-  </div>`;
 }
 
 /* ---------- petits graphiques (histogramme, indice, sparkline) ---------- */
@@ -132,6 +152,7 @@ function drawHist(cv, hist){
   ctx.textAlign = 'right';
   ctx.fillText('+' + (hist[hist.length-1].hi*100).toFixed(0) + '%', w - 2, h - 2);
 }
+
 function drawIndex(cv, index){
   const H = 110;
   const dpr = window.devicePixelRatio || 1;
@@ -224,7 +245,7 @@ function mkQuery(){
   if(mk.name.trim()) qs.set('name', mk.name.trim());
   if(mk.artist.trim()) qs.set('artist', mk.artist.trim());
   if(mk.colors.length) qs.set('colors', mk.colors.join(','));
-  if(mk.type) qs.set('types', mk.type);
+  if(mk.types.length) qs.set('types', mk.types.join(','));
   if(mk.cmc !== '') qs.set('cmc', mk.cmc);
   if(mk.set) qs.set('set', mk.set);
   if(mk.reserved) qs.set('reserved', '1');
@@ -232,19 +253,24 @@ function mkQuery(){
   return qs.toString();
 }
 
+/* tableau des résultats : format liste de la collection (vignette 70x95, pastille de rareté,
+   qté possédée) + 2 colonnes d'évolution (% et montant €) + impact collection (flat x qté) */
 function tableHTML(j){
   const th = (k, label, w) => `<th data-s="${k}" style="${w?`width:${w};`:''}cursor:pointer;user-select:none">${label}${mk.sort===k?(mk.dir==='asc'?' ▲':' ▼'):''}</th>`;
   return `<table id="mk-table"><thead><tr>
-    <th></th>${th('name','Nom')}${th('set','Extension',70)}${th('rarity','Rareté',90)}${th('was','Avant',90)}${th('now','Maintenant',100)}${th('pct','Évolution',100)}<th style="width:120px">Tendance</th>
+    <th style="width:76px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('rarity','Rareté',90)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
   </tr></thead><tbody id="mk-body">
   ${j.rows.map(r => `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
-    <td><img class="mkimg" data-sf="${r.sfid||''}" src="${imgCache[r.sfid]||''}" alt="" style="width:36px;border-radius:5px;background:#000;min-height:50px"></td>
-    <td><span class="link" data-nm="${esc(r.name)}">${esc(r.name)}</span></td>
+    <td><img class="collthumb mkimg" data-sf="${r.sfid||''}" src="${imgCache[r.sfid]||''}" alt=""></td>
+    <td><div class="cellname">${rarityDotHTML(r.rarity)}<span class="link" data-nm="${esc(r.name)}">${esc(r.name)}</span></div></td>
     <td class="hint">${esc((r.set||'').toUpperCase())}${r.cn?` · ${esc(String(r.cn))}`:''}</td>
     <td class="hint">${RARITY_FR[r.rarity]||r.rarity||'—'}</td>
+    <td>${r.qty>0?`<span class="pill infopill" title="Exemplaires dans ma collection">×${r.qty}</span>`:'<span class="hint">—</span>'}</td>
     <td class="p">${r.was!=null?eur(r.was):'—'}</td>
     <td class="p">${r.now!=null?eur(r.now):'—'}</td>
-    <td class="p" style="color:${r.pct==null?'var(--muted)':(r.pct>=0?'var(--ok)':'var(--bad)')};font-weight:700">${r.pct==null?'—':((r.pct>=0?'+':'')+(r.pct*100).toFixed(1)+'%')}</td>
+    <td class="p" style="color:${pctColor(r.pct)};font-weight:700">${r.pct==null?'—':((r.pct>=0?'+':'')+(r.pct*100).toFixed(1)+'%')}</td>
+    <td class="p" style="color:${pctColor(r.flat)};font-weight:700">${r.flat==null?'—':((r.flat>=0?'+':'')+eur(r.flat))}</td>
+    <td class="p" style="color:${pctColor(r.impact)};font-weight:700" title="Évolution € × qté possédée">${r.impact==null?'—':((r.impact>=0?'+':'')+eur(r.impact))}</td>
     <td><canvas class="spark" data-spark="${esc(JSON.stringify(r.spark))}"></canvas></td>
   </tr>`).join('')}
   </tbody></table>`;
@@ -255,7 +281,8 @@ async function mkLoad(app){
   const D = priceDays();
   if(!D){ res.innerHTML = '<p class="hint">prices.db indisponible : lancez une mise à jour (Paramètres).</p>'; return; }
   if(mk.from == null){ mk.from = D.from; mk.to = D.to; }
-  res.innerHTML = '<p class="hint">Calcul des évolutions…</p>';
+  // spinner centré au milieu de la page pendant la requête
+  res.innerHTML = `<div class="mkloading"><div class="spin" style="width:48px;height:48px;border-width:4px"></div><p class="hint">Recherche en cours…</p></div>`;
   let j = null;
   try{ j = await (await fetch('/api/market/cards?' + mkQuery())).json(); }catch(e){}
   if(!j || !j.ok){ res.innerHTML = `<p class="hint">⚠ ${esc((j && j.error) || 'serveur injoignable')}</p>`; return; }
@@ -309,8 +336,11 @@ function vMarket(app){
       <p class="hint" style="margin-top:14px">Vue <b>Éditions</b> — en construction. Revenez bientôt : valorisation et évolution par extension.</p>
     ` : `
       ${filtersHTML()}
-      <div id="priceline" style="margin-top:8px"></div>
-      ${gaugeHTML()}
+      <div id="priceline" class="daterange" style="margin-top:10px"></div>
+      <div class="row" style="justify-content:space-between;margin-top:2px">
+        <span class="hint" id="dtminlab" style="font-weight:600"></span>
+        <span class="hint" id="dtmaxlab" style="font-weight:600"></span>
+      </div>
       <div class="row" id="mk-kpi" style="gap:8px;flex-wrap:wrap;margin:10px 0 4px"></div>
       <div class="row" style="gap:18px;flex-wrap:wrap;align-items:flex-start">
         <div style="flex:1;min-width:280px"><h4 class="sub">Indice du marché (base 100 au début)</h4><canvas id="mk-index" style="width:100%"></canvas></div>
@@ -321,34 +351,94 @@ function vMarket(app){
   </div>`;
   app.querySelectorAll('[data-mode]').forEach(el => el.onclick = () => { mk.mode = el.dataset.mode; saveMk(); vMarket(app); });
   if(mk.mode !== 'cartes') return;
-  // filtres
-  const nameIn = app.querySelector('#mk-name'), artistIn = app.querySelector('#mk-artist');
-  nameIn.oninput = () => { mk.name = nameIn.value; };
-  artistIn.oninput = () => { mk.artist = artistIn.value; };
-  app.querySelectorAll('#mk-colors .pill').forEach(b => b.onclick = () => {
-    const c = b.dataset.c;
-    mk.colors = mk.colors.includes(c) ? mk.colors.filter(x => x !== c) : [...mk.colors, c];
-    b.classList.toggle('active');
+
+  const go = () => { mk.page = 1; saveMk(); mkLoad(app); };
+
+  // nom de carte + autocomplétion multilingue (comme la recherche avancée)
+  const nameIn = app.querySelector('#mk-name'), nsugg = app.querySelector('#mk-namesugg');
+  let nitems = [];
+  nameIn.oninput = () => {
+    mk.name = nameIn.value;
+    clearTimeout(nameIn._t); clearTimeout(nameIn._s);
+    const v = nameIn.value.trim();
+    if(v.length >= 2){
+      nameIn._s = setTimeout(async () => {
+        try{ nitems = await sfAutocomplete(v); }catch(e){ nitems = []; }
+        if(!nitems.length){ nsugg.style.display='none'; return; }
+        nsugg.innerHTML = nitems.slice(0,8).map((n,i)=>`<div data-i="${i}">🃏 ${esc(n)}</div>`).join('');
+        nsugg.style.display='block';
+        nsugg.querySelectorAll('div').forEach(el => el.onmousedown = ev => {
+          ev.preventDefault(); nameIn.value = nitems[el.dataset.i]; mk.name = nameIn.value; nsugg.style.display='none'; go();
+        });
+      }, 280);
+    } else nsugg.style.display='none';
+  };
+  nameIn.onkeydown = e => { if(e.key==='Enter'){ e.preventDefault(); nsugg.style.display='none'; go(); } };
+  nameIn.addEventListener('blur', () => setTimeout(() => nsugg.style.display='none', 150));
+
+  // artiste + autocomplétion (catalogue Scryfall mis en cache)
+  const artistIn = app.querySelector('#mk-artist'), asugg = app.querySelector('#mk-artistsugg');
+  artistIn.oninput = () => {
+    mk.artist = artistIn.value;
+    clearTimeout(artistIn._t); clearTimeout(artistIn._s);
+    const v = artistIn.value.trim().toLowerCase();
+    if(v.length >= 2){
+      artistIn._s = setTimeout(async () => {
+        try{
+          const list = await sfArtists();
+          const hits = list.filter(a => a.toLowerCase().includes(v)).slice(0,10);
+          if(!hits.length){ asugg.style.display='none'; return; }
+          asugg.innerHTML = hits.map((a,i)=>`<div data-i="${i}">🎨 ${esc(a)}</div>`).join('');
+          asugg.style.display='block';
+          asugg.querySelectorAll('div').forEach(el => el.onmousedown = ev => {
+            ev.preventDefault(); artistIn.value = hits[el.dataset.i]; mk.artist = artistIn.value; asugg.style.display='none'; go();
+          });
+        }catch(e){ asugg.style.display='none'; }
+      }, 250);
+    } else asugg.style.display='none';
+  };
+  artistIn.onkeydown = e => { if(e.key==='Enter'){ e.preventDefault(); asugg.style.display='none'; go(); } };
+  artistIn.addEventListener('blur', () => setTimeout(() => asugg.style.display='none', 150));
+
+  // couleurs : mêmes pastilles que la recherche avancée (clic = cocher/décocher)
+  app.querySelectorAll('#mk-colors span').forEach(s => s.onclick = () => {
+    s.classList.toggle('on');
+    mk.colors = [...app.querySelectorAll('#mk-colors span.on')].map(x => x.dataset.c);
   });
-  app.querySelector('#mk-type').onchange = e => { mk.type = e.target.value; };
+
+  // types (multi-sélection, comme la recherche avancée)
+  const ms = app.querySelector('#mk-types');
+  ms.querySelector('button').onclick = e => { e.stopPropagation(); ms.classList.toggle('open'); };
+  ms.querySelectorAll('.opts input').forEach(cb => cb.onchange = () => {
+    mk.types = [...ms.querySelectorAll('.opts input:checked')].map(x => x.value);
+    ms.querySelector('button').textContent = `Type : ${mk.types.length||'tous'} ▾`;
+  });
+  document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
+
   app.querySelector('#mk-cmc').onchange = e => { mk.cmc = e.target.value; };
   app.querySelector('#mk-reserved').onchange = e => { mk.reserved = e.target.checked; };
   app.querySelector('#mk-coll').onchange = e => { mk.coll = e.target.checked; };
+
   const setSel = app.querySelector('#mk-set');
   sfSets().then(list => {
-    setSel.innerHTML = '<option value="">Extension : toutes</option>' + list.filter(s => !s.digital).slice().sort((a,b) => (b.released_at||'').localeCompare(a.released_at||'')).map(s => `<option value="${s.code}" ${mk.set===s.code?'selected':''}>${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
+    const sorted = list.filter(s => !s.digital).slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    setSel.innerHTML = '<option value="">Extension : toutes</option>' + sorted.map(s => `<option value="${s.code}" ${mk.set===s.code?'selected':''}>${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
   }).catch(() => {});
   setSel.onchange = e => { mk.set = e.target.value; };
-  const go = () => { mk.page = 1; saveMk(); mkLoad(app); };
+
   app.querySelector('#mk-go').onclick = go;
-  nameIn.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); go(); } });
-  artistIn.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); go(); } });
   app.querySelector('#mk-reset').onclick = () => {
-    Object.assign(mk, { name:'', artist:'', colors:[], type:'', cmc:'', set:'', reserved:false, coll:false, page:1 });
+    Object.assign(mk, { name:'', artist:'', colors:[], types:[], cmc:'', set:'', reserved:false, coll:false, page:1 });
     saveMk(); vMarket(app);
   };
+
   loadPriceDays().then(() => {
-    mountPriceTimeline(app.querySelector('#priceline'));
+    const pl = app.querySelector('#priceline');
+    mountPriceTimeline(pl);   // timeline vert/rouge dans la priceline
+    // les 2 boules déplaçables directement sur la priceline
+    pl.insertAdjacentHTML('beforeend',
+      '<input type="range" id="dtmin" min="0" max="100" step="1" value="0">' +
+      '<input type="range" id="dtmax" min="0" max="100" step="1" value="100">');
     wireDateGauge(app);
     mkLoad(app);
   });
@@ -378,7 +468,6 @@ function drawPriceChart(cv, series){
   ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '10px sans-serif';
   ctx.textAlign = 'left'; ctx.fillText(new Date(t0).toISOString().slice(0,10), 8, h - 6);
   ctx.textAlign = 'right'; ctx.fillText(new Date(t1).toISOString().slice(0,10), w - 8, h - 6);
-  const lg = all.reduce((a, s) => a + s.label.length, 0);
   let lx = 8;
   ctx.textAlign = 'left';
   for(const s of all){
@@ -402,7 +491,7 @@ async function loadPriceChart(c, modal){
   if(j.normal.length) series.push({label:'Normal', color:'#5b8cff', pts:j.normal.map(p => [new Date(p[0]).getTime(), p[1]])});
   if(j.foil && j.foil.length) series.push({label:'Foil', color:'#e0b84d', pts:j.foil.map(p => [new Date(p[0]).getTime(), p[1]])});
   if(series.every(s => !s.pts.length)){ box.innerHTML = '<p class="hint">Aucun historique pour cette carte.</p>'; return; }
-  const first = series.flatMap(s => s.pts)[0], lastN = j.normal[j.normal.length-1], lastF = j.foil && j.foil[j.foil.length-1];
+  const lastN = j.normal[j.normal.length-1], lastF = j.foil && j.foil[j.foil.length-1];
   box.innerHTML = `
     <canvas class="chart" id="pricecv" style="width:100%;height:220px"></canvas>
     <p class="hint">${j.normal.length+j.foil.length} points · dernier prix : ${eur(lastN?lastN[1]:lastF[1])} (${lastN?lastN[0]:lastF[0]})

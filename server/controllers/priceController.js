@@ -144,8 +144,9 @@ export function apiMarketCards(req, res) {
   if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
   const key = JSON.stringify({ ...q, from, to });
   const nowS = Date.now() / 1000;
+  const mtime = fs.statSync(PRICES_DB).mtimeMs;   // une mise à jour de prices.db invalide le cache
   const hit = marketCardsCache.get(key);
-  if (hit && nowS - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
+  if (hit && hit.mtime === mtime && nowS - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
   if (marketCardsCache.size > 8) marketCardsCache.delete(marketCardsCache.keys().next().value);
 
   const c = getPricesDb();
@@ -157,8 +158,10 @@ export function apiMarketCards(req, res) {
   if (artist) { where.push('LOWER(c.artist) LIKE ?'); args.push('%' + artist + '%'); }
   if (q.set) { where.push('c."set" = ?'); args.push(String(q.set).toUpperCase()); }
   if (String(q.reserved) === '1' || String(q.reserved) === 'true') where.push('c.reserved = 1');
-  for (const col of String(q.colors || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean)) {
-    where.push('c.colors LIKE ?'); args.push('%,' + col + ',%');
+  const cols = String(q.colors || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (cols.length) {
+    where.push('(' + cols.map(() => 'c.colors LIKE ?').join(' OR ') + ')');
+    args.push(...cols.map(c => '%,' + c + ',%'));
   }
   const types = String(q.types || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   if (types.length) {
@@ -183,14 +186,22 @@ export function apiMarketCards(req, res) {
     WHERE ${where.join(' AND ')}`;
   const rows = c.prepare(sql).all(...args);
 
+  const qtyMap = new Map();   // "SET|CN" -> qté possédée dans la collection (colonne Coll. + impact)
+  for (const e of collectionEntries()) {
+    const k = (e.set || '').toUpperCase() + '|' + (e.cn != null ? String(e.cn) : '');
+    if (k !== '|') qtyMap.set(k, (qtyMap.get(k) || 0) + (e.qty || 1));
+  }
   const out = rows.map(r => {
     const blob = r.normal || r.foil;
     const was = blobAt(blob, from);
     const nowP = blobAt(blob, to);
     const wasEff = (was != null && was >= 0.1) ? was : null;   // points aberrants MTGJSON (< 0,10 EUR) = pas de prix fiable
-    return { sfid: r.scryfall_id, name: r.name, set: r.set, cn: r.cn, rarity: r.rarity, lang: r.lang,
+    const qty = qtyMap.get((r.set || '').toUpperCase() + '|' + (r.cn != null ? String(r.cn) : '')) || 0;
+    const flat = (wasEff != null && nowP != null) ? round2(nowP - wasEff) : null;
+    return { sfid: r.scryfall_id, name: r.name, set: r.set, cn: r.cn, rarity: r.rarity, lang: r.lang, qty,
              was: was != null ? round2(was) : null, now: nowP != null ? round2(nowP) : null,
-             pct: (wasEff && nowP) ? nowP / wasEff - 1 : null, _wasEff: wasEff != null, _blob: blob };
+             pct: (wasEff && nowP) ? nowP / wasEff - 1 : null, flat,
+             impact: flat != null ? round2(flat * qty) : null, _wasEff: wasEff != null, _blob: blob };
   });
   const sort = q.sort || 'pct';
   const dir = q.dir === 'asc' ? 1 : -1;
@@ -201,6 +212,9 @@ export function apiMarketCards(req, res) {
     was: (a, b) => (a.was ?? -1) - (b.was ?? -1),
     now: (a, b) => (a.now ?? -1) - (b.now ?? -1),
     pct: (a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity),
+    flat: (a, b) => (a.flat ?? -Infinity) - (b.flat ?? -Infinity),
+    impact: (a, b) => (a.impact ?? -Infinity) - (b.impact ?? -Infinity),
+    qty: (a, b) => (a.qty || 0) - (b.qty || 0),
   })[sort] || ((a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity));
   out.sort((a, b) => {
     const aNo = !a._wasEff, bNo = !b._wasEff;
@@ -254,7 +268,7 @@ export function apiMarketCards(req, res) {
   const result = { ok: true, from: dayStr(from), to: dayStr(to), total: n, page, pages, limit,
     kpi: { n, up, down, flat: pcts.length - up - down, median: median != null ? round2(median * 100) / 100 : null, avg: avg != null ? round2(avg * 100) / 100 : null },
     hist, index, rows: pageRows };
-  marketCardsCache.set(key, { ts: nowS, result });
+  marketCardsCache.set(key, { ts: nowS, mtime, result });
   sendJson(res, 200, result);
 }
 

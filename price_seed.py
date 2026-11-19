@@ -466,6 +466,37 @@ def seed_cardsmeta():
     con.commit()
     total = con.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
     log(f"Table cards : {total} cartes, metadonnees a jour ({time.time()-t0:.0f}s)")
+    seed_reserved()
+
+
+def seed_reserved():
+    """Marque reserved=1 dans cards depuis la Reserved List de Scryfall.
+    MTGJSON v5 n'exporte plus le champ 'reserved' dans AllPrintings (toujours 0),
+    donc on interroge Scryfall : is:reserved avec unique=prints -> toutes les
+    impressions de la RL avec leur scryfall_id (colonne utilisee par l'app)."""
+    con = init_db()
+    ids = set()
+    url = "https://api.scryfall.com/cards/search?q=is%3Areserved&unique=prints"
+    page = 0
+    while url:
+        page += 1
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (MTGStudio)", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            j = json.loads(r.read().decode())
+        for c in j.get("data", []):
+            if c.get("id"):
+                ids.add(c["id"])
+        log(f"  reserved : page {page}, {len(ids)} impressions cumulees")
+        url = j.get("next_page")
+        if url:
+            time.sleep(0.12)   # ~8 req/s max (limite Scryfall)
+    n = 0
+    for sfid in ids:
+        n += con.execute("UPDATE cards SET reserved=1 WHERE scryfall_id=?", (sfid,)).rowcount
+    con.commit()
+    con.execute("INSERT OR REPLACE INTO meta VALUES('reserved_seed', ?)", (time.strftime("%Y-%m-%d"),))
+    con.commit()
+    log(f"Reserved List : {len(ids)} impressions scannees, {n} cartes marquees reserved=1")
 
 # ------------------- étape 3 : mise à jour quotidienne (AllPricesToday)
 def update_today(force=False):
@@ -794,6 +825,8 @@ if __name__ == "__main__":
             update_today(force="--force" in sys.argv)
         elif what == "weekly":
             weekly()
+        elif what == "reserved":
+            seed_reserved()
         else:
             print(__doc__)
     finally:
