@@ -350,7 +350,7 @@ function kpiHTML(j){
   return `
   <div class="kpi-box kpi-mid" style="flex:1.6;min-width:380px">
     <div class="kpi-mid-left">
-      <div class="hint" style="font-weight:700">Evolution totale</div>
+      <h4 class="sub">Evolution totale</h4>
       <div class="kpi-big" style="color:${pctColor(tot.flat)}">${fmtSignedEur(tot.flat)} <span style="font-size:15px">/ ${fmtPct(tot.pct)}</span></div>
       <div class="kpi-line" style="color:var(--ok)">▲ ${fmtSignedEur(k.upSum)} <span class="hint" style="font-weight:400">${(k.up || 0).toLocaleString('fr-FR')} cartes en hausse</span></div>
       <div class="kpi-line" style="color:var(--bad)">▼ ${fmtSignedEur(k.downSum)} <span class="hint" style="font-weight:400">${(k.down || 0).toLocaleString('fr-FR')} cartes en baisse</span></div>
