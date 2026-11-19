@@ -27,6 +27,7 @@ const saveMk = () => store.set('mtg_market', mk);
 
 const RARITY_FR = { common: 'Commune', uncommon: 'Peu commune', rare: 'Rare', mythic: 'Mythique', special: 'Spéciale', bonus: 'Bonus' };
 let setNameMap = {};   // code d'extension -> nom (rempli depuis sfSets)
+{ const cached = store.get('mtg_sf_sets'); if (Array.isArray(cached)) setNameMap = Object.fromEntries(cached.filter(x => x.code && x.name).map(x => [x.code, x.name])); }
 const RAR_COLORS = { mythic: '#B94421', rare: '#CCB473', uncommon: '#CECECE', common: '#2B2728' };
 const COLOR_CSS = { W: '#f4e8a6', U: '#6db3f2', B: '#b5a6f4', R: '#f26a6a', G: '#7ec97e' };
 
@@ -439,7 +440,7 @@ function vMarket(app){
   app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.checked; go(); };
 
   const setSel = app.querySelector('#mk-set');
-  sfSets().then(list => {
+  const setsReady = sfSets().then(list => {
     const sorted = list.filter(s => !s.digital).slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
     setNameMap = Object.fromEntries(sorted.map(s => [s.code, s.name]));
     setSel.innerHTML = '<option value="">Extension : toutes</option>' + sorted.map(s => `<option value="${s.code}" ${mk.set===s.code?'selected':''}>${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
@@ -452,7 +453,7 @@ function vMarket(app){
     saveMk(); vMarket(app);
   };
 
-  loadPriceDays().then(() => {
+  Promise.all([loadPriceDays(), setsReady]).then(() => {
     const pl = app.querySelector('#priceline');
     mountPriceTimeline(pl);   // timeline vert/rouge dans la priceline
     // les 2 boules déplaçables directement sur la priceline
