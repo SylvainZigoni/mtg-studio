@@ -106,12 +106,13 @@ def unpack_points(blob):
     return out
 
 def downsample(pts):
-    """pts: [(date_str, prix)]. Garde tout l'historique < 400 jours, sinon 1 point par semaine (le dernier)."""
+    """pts: [(date_str OU ordinal int, prix)]. Garde tout l'historique < 400 jours, sinon 1 point par semaine (le dernier)."""
     if not pts:
         return []
     import datetime
     cutoff = datetime.date.today().toordinal() - 400
-    pts = [(datetime.date(int(d[:4]), int(d[5:7]), int(d[8:10])).toordinal(), p) for d, p in pts]
+    # weekly() passe des ordinals (int) via _map_to_days, seed_prices/today des dates ISO 'YYYY-MM-DD'
+    pts = [(d if isinstance(d, int) else datetime.date(int(d[:4]), int(d[5:7]), int(d[8:10])).toordinal(), p) for d, p in pts]
     pts.sort()
     out, seen = [], []
     for day, p in pts:                      # triés par date croissante
