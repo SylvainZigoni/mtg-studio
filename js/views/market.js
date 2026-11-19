@@ -347,10 +347,6 @@ function kpiHTML(j){
   const k = j.kpi || {};
   const tot = k.tot || {}, coll = k.coll || {};
   return `
-  <div class="kpi-box" style="flex:1;min-width:260px">
-    <h4 class="sub">Valorisation totale — ${(k.n || 0).toLocaleString('fr-FR')} cartes</h4>
-    <canvas id="mk-total" style="width:100%"></canvas>
-  </div>
   <div class="kpi-box kpi-mid" style="flex:1.6;min-width:380px">
     <div class="kpi-mid-left">
       <div class="hint" style="font-weight:700">Evolution totale</div>
@@ -370,6 +366,10 @@ function kpiHTML(j){
     <div class="kpi-line" style="font-weight:400"><b>${isoFr(j.to)}</b> : <b>${eur(coll.now)}</b></div>
     <div class="kpi-big" style="color:${pctColor(coll.flat)};margin-top:6px">${fmtSignedEur(coll.flat)} <span style="font-size:15px">/ ${fmtPct(coll.pct)}</span></div>
     <div class="hint" style="margin-top:5px">${(coll.n || 0).toLocaleString('fr-FR')} lignes de collection concernees</div>
+  </div>
+  <div class="kpi-box" style="flex:1 1 100%;min-width:260px">
+    <h4 class="sub">Valorisation totale — ${(k.n || 0).toLocaleString('fr-FR')} cartes</h4>
+    <canvas id="mk-total" style="width:100%"></canvas>
   </div>`;
 }
 
