@@ -27,7 +27,7 @@ const saveMk = () => store.set('mtg_market', mk);
 
 const RARITY_FR = { common: 'Commune', uncommon: 'Peu commune', rare: 'Rare', mythic: 'Mythique', special: 'Spéciale', bonus: 'Bonus' };
 let setNameMap = {};   // code d'extension -> nom (rempli depuis sfSets)
-{ const cached = store.get('mtg_sf_sets'); if (Array.isArray(cached)) setNameMap = Object.fromEntries(cached.filter(x => x.code && x.name).map(x => [x.code, x.name])); }
+{ const cached = store.get('mtg_sf_sets'); if (Array.isArray(cached)) setNameMap = Object.fromEntries(cached.filter(x => x.code && x.name).map(x => [x.code.toLowerCase(), x.name])); }
 const RAR_COLORS = { mythic: '#B94421', rare: '#CCB473', uncommon: '#CECECE', common: '#2B2728' };
 const COLOR_CSS = { W: '#f4e8a6', U: '#6db3f2', B: '#b5a6f4', R: '#f26a6a', G: '#7ec97e' };
 
@@ -251,7 +251,7 @@ function tableHTML(j){
   return `<table id="mk-table"><thead><tr>
     <th style="width:86px"></th>${th('name','Carte')}${th('set','Extension',80)}${th('qty','Coll.',55)}${th('was','Avant',80)}${th('now','Maintenant',95)}${th('pct','Évol. %',85)}${th('flat','Évol. €',85)}${th('impact','Impact coll.',100)}<th style="width:120px">Tendance</th>
   </tr></thead><tbody id="mk-body">
-  ${j.rows.map(r => { const setLabel = esc(r.set_name || setNameMap[r.set] || (r.set||'').toUpperCase());
+  ${j.rows.map(r => { const setLabel = esc(r.set_name || setNameMap[(r.set||'').toLowerCase()] || (r.set||'').toUpperCase());
     return `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
     <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${r.img_lg||r.img||''}" src="${r.img||''}" alt=""></td>
     <td><div class="cellname">${rarityDotHTML(r.rarity)}<span class="link cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}">${esc(r.name)}</span></div>
@@ -442,7 +442,7 @@ function vMarket(app){
   const setSel = app.querySelector('#mk-set');
   const setsReady = sfSets().then(list => {
     const sorted = list.filter(s => !s.digital).slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
-    setNameMap = Object.fromEntries(sorted.map(s => [s.code, s.name]));
+    setNameMap = Object.fromEntries(sorted.map(s => [s.code.toLowerCase(), s.name]));
     setSel.innerHTML = '<option value="">Extension : toutes</option>' + sorted.map(s => `<option value="${s.code}" ${mk.set===s.code?'selected':''}>${esc(s.name)} (${s.code.toUpperCase()})</option>`).join('');
   }).catch(() => {});
   setSel.onchange = e => { mk.set = e.target.value; };
