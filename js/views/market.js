@@ -101,11 +101,10 @@ function wireDateGauge(app){
     lmax.textContent = frOfDay(days[Math.max(a, b)]);
     rmin.style.zIndex = a > b - 2 ? 5 : 3;
   };
-  const apply = () => {
+  const apply = () => {   // on mémorise la fenêtre mais on ne lance PAS la recherche (bouton "Rechercher")
     let a = +rmin.value, b = +rmax.value;
     if(a > b){ const t = a; a = b; b = t; }
     mk.from = days[a]; mk.to = days[b]; mk.page = 1; saveMk(); paint();
-    mkLoad(app);
   };
   rmin.addEventListener('input', paint);
   rmax.addEventListener('input', paint);
@@ -483,7 +482,7 @@ function vMarket(app){
         nsugg.innerHTML = nitems.slice(0,8).map((n,i)=>`<div data-i="${i}">🃏 ${esc(n)}</div>`).join('');
         nsugg.style.display='block';
         nsugg.querySelectorAll('div').forEach(el => el.onmousedown = ev => {
-          ev.preventDefault(); nameIn.value = nitems[el.dataset.i]; mk.name = nameIn.value; nsugg.style.display='none'; go();
+          ev.preventDefault(); nameIn.value = nitems[el.dataset.i]; mk.name = nameIn.value; nsugg.style.display='none';
         });
       }, 280);
     } else nsugg.style.display='none';
@@ -506,7 +505,7 @@ function vMarket(app){
           asugg.innerHTML = hits.map((a,i)=>`<div data-i="${i}">🎨 ${esc(a)}</div>`).join('');
           asugg.style.display='block';
           asugg.querySelectorAll('div').forEach(el => el.onmousedown = ev => {
-            ev.preventDefault(); artistIn.value = hits[el.dataset.i]; mk.artist = artistIn.value; asugg.style.display='none'; go();
+            ev.preventDefault(); artistIn.value = hits[el.dataset.i]; mk.artist = artistIn.value; asugg.style.display='none';
           });
         }catch(e){ asugg.style.display='none'; }
       }, 250);
@@ -531,9 +530,9 @@ function vMarket(app){
   document.body.addEventListener('click', ev => { if(!ms.contains(ev.target)) ms.classList.remove('open'); });
 
   app.querySelector('#mk-cmc').onchange = e => { mk.cmc = e.target.value; };
-  app.querySelector('#mk-reserved').onchange = e => { mk.reserved = e.target.checked; go(); };
-  app.querySelector('#mk-coll').onchange = e => { mk.coll = e.target.checked; go(); };
-  app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.value; go(); };
+  app.querySelector('#mk-reserved').onchange = e => { mk.reserved = e.target.checked; };   // recherche au clic sur "Rechercher"
+  app.querySelector('#mk-coll').onchange = e => { mk.coll = e.target.checked; };
+  app.querySelector('#mk-foil').onchange = e => { mk.foil = e.target.value; };
 
   const setSel = app.querySelector('#mk-set');
   const setsReady = sfSets().then(list => {
