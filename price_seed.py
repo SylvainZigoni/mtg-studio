@@ -356,7 +356,7 @@ def seed_cards():
     listfile = download(f"{BASE_URL}/SetList.json.gz", os.path.join(CACHE_DIR, "SetList.json.gz"))
     setlist = json.load(gzip.open(listfile))
     con = init_db()
-    codes = [s["code"] for s in setlist["data"]]
+    codes = [s["code"] for s in setlist["data"] if not s.get("isOnlineOnly")]   # que les extensions papier
     done = set(r[0] for r in con.execute('SELECT DISTINCT "set" FROM cards'))
     todo = [c for c in codes if c not in done]
     log(f"{len(todo)} extensions à importer ({len(done)} déjà faites)…")
@@ -364,8 +364,12 @@ def seed_cards():
         try:
             p = download(f"{BASE_URL}/{code.upper()}.json.gz", os.path.join(CACHE_DIR, f"{code}.json.gz"))
             data = json.load(gzip.open(p)).get("data") or {}
+            if data.get("isOnlineOnly"):
+                continue   # extension online-only : aucune carte a importer
             rows = []
             for c in (data.get("cards") or []) + (data.get("tokens") or []):
+                if "paper" not in (c.get("availability") or []):
+                    continue   # que les cartes PAPIER (availability)
                 sfid = (c.get("identifiers") or {}).get("scryfallId")
                 if sfid:
                     rows.append((sfid, c.get("uuid"), c.get("name"), code,
@@ -401,6 +405,7 @@ def seed_cardsmeta():
     dest = os.path.join(CACHE_DIR, "AllPrintings.json.gz")
     src = download(f"{BASE_URL}/AllPrintings.json.gz", dest)
     con = init_db()
+    nonpaper = []   # scryfall_id des cartes non-paper vues (menage en fin de parse)
     st = Stream(src)
     assert st.skip_ws() == b"{"; st.pos += 1
     n = 0; t0 = time.time()
@@ -440,6 +445,13 @@ def seed_cardsmeta():
                                 if st.skip_ws() == b"]": st.pos += 1; break
                                 cols.append(st.read_string())
                             f[key3] = cols
+                        elif key3 == "availability":
+                            assert st.skip_ws() == b"["; st.pos += 1
+                            av = []
+                            while True:
+                                if st.skip_ws() == b"]": st.pos += 1; break
+                                av.append(st.read_string())
+                            f[key3] = av
                         elif key3 in ("identifiers","imageUris"):
                             want = "scryfallId" if key3 == "identifiers" else "small"
                             tag = "sfid" if key3 == "identifiers" else "img"
@@ -453,16 +465,25 @@ def seed_cardsmeta():
                         else:
                             st.skip_value()
                     sfid = f.get("sfid")
-                    if sfid:
+                    av = f.get("availability")
+                    if sfid and (av is None or "paper" in av):   # que les cartes PAPIER
                         con.execute("INSERT OR REPLACE INTO cards (scryfall_id, uuid, name, \"set\", cn, released_at, artist, colors, type_line, cmc, rarity, image, reserved, lang) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (sfid, f.get("uuid"), f.get("name"), code, f.get("number"), f.get("releaseDate"),
                              f.get("artist"), "," + ",".join(f.get("colors") or []) + ",",
                              f.get("type"), f.get("manaValue"), f.get("rarity"),
                              f.get("img"), 1 if f.get("reserved") else 0, f.get("language")))
                         n += 1
+                    elif sfid:
+                        nonpaper.append(sfid)
                     if n % 20000 == 0:
                         con.commit(); log(f"{n} cartes lues… ({time.time()-t0:.0f}s)")
     con.commit()
+    # menage : supprime les cartes non-paper deja en base et les series orphelines
+    for i in range(0, len(nonpaper), 500):
+        con.executemany("DELETE FROM cards WHERE scryfall_id=?", [(x,) for x in nonpaper[i:i+500]])
+    if con.execute("SELECT COUNT(*) FROM cards").fetchone()[0] > 100000:
+        con.execute("DELETE FROM series WHERE uuid NOT IN (SELECT uuid FROM cards)")   # series sans card (ex-set online)
+    log(f"Menage papier : {len(nonpaper)} cartes non-paper supprimees de cards")
     con.execute("INSERT OR REPLACE INTO meta VALUES('cards_meta', ?)", (time.strftime("%Y-%m-%d"),))
     con.commit()
     total = con.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
@@ -820,8 +841,8 @@ if __name__ == "__main__":
             seed_prices()
         elif what == "cards":
             seed_cards()
-        elif what == "cardsmeta":
-            seed_cardsmeta()
+        elif what == "cardsmeta" or what == "paper":
+            seed_cardsmeta()   # ne garde que les cartes papier + menage des non-paper/orphelins
         elif what == "today":
             update_today(force="--force" in sys.argv)
         elif what == "weekly":

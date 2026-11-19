@@ -3,6 +3,9 @@ import { dbPrice } from './pricedb.js';
 import { norm, LANGS } from './util.js';
 /* ---------------- Scryfall (avec file de requêtes) ---------------- */
 const sfCache = store.get('mtg_sf_cache', {});
+
+/* on ne s'interesse qu'aux cartes PAPIER : game:paper exclut les cartes online/digital (Scryfall digital=false) */
+const paper = q => q.includes('game:') ? q : q + ' game:paper';
 const saveCache = () => { try{ localStorage.setItem('mtg_sf_cache', JSON.stringify(sfCache)); }catch(e){} };
 let sfQueue = [], sfBusy = false;
 function sfFetch(url){
@@ -24,7 +27,7 @@ async function sfPump(){
 async function sfCardByName(name){       // printing le plus ancien
   const k = norm(name);
   if(sfCache[k]) return sfCache[k];
-  const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+name+'"')}&unique=prints&order=released&dir=asc&include_extras=true`);
+  const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(paper('!"'+name+'"'))}&unique=prints&order=released&dir=asc&include_extras=true`);
   const c = j.data && j.data.find(x => x.image_status !== 'missing') || j.data[0];
   const sub = c && {
     name: c.name, set: c.set, set_name: c.set_name, released_at: c.released_at,
@@ -56,7 +59,7 @@ async function sfAutocomplete(q){       // anglais d'abord, puis FR/DE/ES/IT/PT 
   // 3. recherche par langue d'impression (les noms localisés sont indexés)
   for(const lg of langs){
     try{
-      const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent('lang:'+lg+' !"'+q+'"')}&unique=prints&order=released&dir=asc&include_extras=true`);
+      const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(paper('lang:'+lg+' !"'+q+'"'))}&unique=prints&order=released&dir=asc&include_extras=true`);
       if(j.data && j.data.length){
         const names = [...new Set(j.data.map(c => c.name))];
         if(names.length){ alias[norm(q)] = names[0]; store.set('mtg_name_alias', alias); return names; }
@@ -71,7 +74,7 @@ function getPrintCache(){ const c = store.get(PRINT_CACHE_KEY, {}); return (type
 async function sfPrints(name){   // toutes les éditions d'une carte, triées de la plus ancienne
   const k = norm(name); const cache = getPrintCache();
   if(cache[k]) return cache[k];
-  const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+name+'"')}&unique=prints&order=released&dir=asc&include_extras=true`);
+  const j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(paper('!"'+name+'"'))}&unique=prints&order=released&dir=asc&include_extras=true`);
   if(!j.data || !j.data.length) return [];
   const prints = j.data.filter(c => c.image_status !== 'missing').map(c => ({
     name:c.name, set:c.set, set_name:c.set_name, cn:c.collector_number, released_at:c.released_at,
@@ -98,11 +101,11 @@ const ALL_LANGS_Q = Object.keys(LANGS).map(l => `lang:${l}`).join(' or ');
 async function sfSetPrints(name, setCode){
   let j = null;
   try{
-    j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`set:${setCode} (${ALL_LANGS_Q}) !"${name}"`)}&unique=prints&include_extras=true`);
+    j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(paper(`set:${setCode} (${ALL_LANGS_Q}) !"${name}"`))}&unique=prints&include_extras=true`);
   }catch(e){}
   if(!j || !j.data || !j.data.length){
     try{
-      j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`set:${setCode} !"${name}"`)}&unique=prints&include_extras=true`);
+      j = await sfFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(paper(`set:${setCode} !"${name}"`))}&unique=prints&include_extras=true`);
     }catch(e){}
   }
   if(!j || !j.data) return [];
@@ -129,7 +132,7 @@ let SET_ICONS = {};   // code -> url svg (rempli par sfSets)
 function sfSearchUrl(q, page, ord){
   // ord = {order, dir} : tri délégué à Scryfall -> globalement correct entre les pages
   const o = ord ? `&order=${ord.order}&dir=${ord.dir}` : '&order=released&dir=asc';
-  return `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}${o}&unique=prints&page=${page}&include_extras=true`;
+  return `https://api.scryfall.com/cards/search?q=${encodeURIComponent(paper(q))}${o}&unique=prints&page=${page}&include_extras=true`;
 }
 async function sfSearch(q, page=1, ord){
   return sfFetch(sfSearchUrl(q, page, ord));
