@@ -86,7 +86,7 @@ function filtersHTML(){
    (calée sur les jours historisés de prices.db) ; les 2 dates choisies s'affichent dessous */
 function wireDateGauge(app){
   const D = priceDays(); if(!D) return;
-  const days = D.days;                 // ordinals triés (jours avec >= 1 prix)
+  const days = (Array.isArray(D.days) && D.days.length ? D.days : [...D.set].sort((a, b) => a - b));   // ordinals triés (jours avec >= 1 prix)
   const n = days.length;
   const box = app.querySelector('#priceline'); if(!box) return;
   const i0 = Math.max(0, days.indexOf(mk.from ?? D.from));
@@ -101,11 +101,10 @@ function wireDateGauge(app){
     lmax.textContent = frOfDay(days[Math.max(a, b)]);
     rmin.style.zIndex = a > b - 2 ? 5 : 3;
   };
-  const apply = () => {   // la jauge de dates filtre en direct (au relâchement du curseur) ; les autres filtres attendent le bouton "Rechercher"
+  const apply = () => {   // on mémorise les bornes ; elles seront appliquées au clic sur "Rechercher" (pas de filtre en direct)
     let a = +rmin.value, b = +rmax.value;
     if(a > b){ const t = a; a = b; b = t; }
     mk.from = days[a]; mk.to = days[b]; mk.page = 1; saveMk(); paint();
-    mkLoad(app);
   };
   rmin.addEventListener('input', paint);
   rmax.addEventListener('input', paint);
@@ -560,7 +559,7 @@ function vMarket(app){
     pl.insertAdjacentHTML('beforeend',
       '<input type="range" id="dtmin" min="0" max="100" step="1" value="0">' +
       '<input type="range" id="dtmax" min="0" max="100" step="1" value="100">');
-    wireDateGauge(app);
+    try{ wireDateGauge(app); }catch(e){ console.error('jauge de dates', e); }
     mkLoad(app);
   });
 }

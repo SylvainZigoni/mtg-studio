@@ -32,7 +32,7 @@ export async function loadPriceDays(){
   try{
     const r = await fetch('/api/prices/days');
     const j = await r.json();
-    if(j && j.ok) DAYS = { from: ordOf(j.from), to: ordOf(j.to), set: new Set(j.days) };
+    if(j && j.ok) DAYS = { from: ordOf(j.from), to: ordOf(j.to), days: [...j.days].sort((a, b) => a - b), set: new Set(j.days) };
   }catch(e){}
   return DAYS;
 }
