@@ -472,7 +472,8 @@ function renderSetsTable(app){
     saveMk(); renderSetsTable(app);
   });
   res.querySelectorAll('#mk-table tr[data-s]').forEach(tr => tr.onclick = () => {
-    mk.mode = 'cartes'; mk.set = tr.dataset.s; mk.page = 1; saveMk(); vMarket(app);   // vue Cartes, filtre extension renseigné+affiché, recherche relancée
+    Object.assign(mk, { mode:'cartes', name:'', artist:'', colors:[], types:[], cmc:'', set: tr.dataset.s, reserved:false, coll:false, foil:'', page:1 });   // vue Cartes : extension renseignée+affichée, tous les autres filtres remis à zéro (foil '' = foil et non foil)
+    saveMk(); vMarket(app);
   });
 }
 
