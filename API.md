@@ -32,7 +32,7 @@ Schémas :
 
 **Source de vérité côté client pour les prix affichés** : `GET /api/prices/last` → map `scryfall_id -> [last_norm, last_foil]`, chargée au boot dans `js/core/pricedb.js` (`dbPrice(sfid, foil)`). Repli Scryfall UNIQUEMENT pour le calcul de valeur de set si `prices.db` absent.
 
-**Images** : dérivées du `scryfall_id` — `https://cards.scryfall.io/<size>/front/<c1>/<c2>/<uuid>.jpg` (1 caractère par dossier, testé 200 en HEAD).
+**Images** : dérivées du `scryfall_id` — `https://cards.scryfall.io/<size>/front/<c1>/<c2>/<uuid>.jpg` (1 caractère par dossier, testé 200 en HEAD). **Drapeaux de langue** : `/assets/icons/flags/<code>.svg` (statique, helper `langFlagHTML(code)` dans `js/core/util.js`).
 
 **Scryfall (API externe, client uniquement)** : métadonnées, recherche avancée, autocomplétion — toujours avec `game:paper` (`paper()` dans `js/core/scryfall.js`). Ne JAMAIS scanner Scryfall pour les prix ou la recherche Marché (trop lent) : tout est dans `prices.db`.
 
@@ -123,7 +123,7 @@ Seuils « aberrant » : un point de prix `<= 0` est ignoré (junk MTGJSON) ; les
 |---|---|---|
 | Prix affiché (tuiles, popup, collection) | `/api/prices/last` → `js/core/pricedb.js` `dbPrice(sfid, foil)` | ne pas appeler Scryfall pour un prix |
 | Timeline jours historisés + jauge dates | `/api/prices/days` → `priceDays()` / `mountPriceTimeline()` | — |
-| Historique d'une carte (fiche) | `/api/price?sfid=` → `loadPriceChart` | — |
+| Historique/sparkline d'une carte (popup fiche) | `/api/price?sfid=` → sparkline 2 courbes via `R.drawSpark` (normal+foil) ; `loadPriceChart`/`drawPriceChart` restent exposés via R (marché) | — |
 | Recherche Marché (cartes) | `/api/market/cards` (100 % `prices.db`) | ne pas paginer Scryfall |
 | Recherche Marché (éditions) | `/api/market/sets` (100 % `prices.db` + collection `mtg_data.db`) | ne pas paginer Scryfall |
 | Top/flop, valeur collection, valeur par set | `/api/market`, `/api/collvalue`, `/api/setvalues` | — |
@@ -132,4 +132,4 @@ Seuils « aberrant » : un point de prix `<= 0` est ignoré (junk MTGJSON) ; les
 | Métadonnées carte, recherche avancée, autocomplete, images | API Scryfall **avec `game:paper`** (`js/core/scryfall.js`) | ne pas s'en servir pour les prix |
 | Vignettes | URL `cards.scryfall.io` construite depuis `scryfall_id` | `cards.image` est NULL pour certaines lignes |
 
-*Dernière mise à jour : 2026-11-19 (branches `dev-marche` / `dev-marche-extension`).*
+*Dernière mise à jour : 2026-11-21 (branches `dev-marche` / `dev-marche-extension` / `dev-zoom_carte`).*
