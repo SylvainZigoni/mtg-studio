@@ -123,7 +123,7 @@ async function showCardInfo(name, _box, ctx){
           <span class="qtyb cp-qall" title="${qAll} toutes éditions confondues dans la collection">×${qAll}</span>
         </div>
         <select id="cp-set" class="cp-set" title="Toutes les éditions où cette carte a été imprimée">
-          ${prints.map(p => `<option value="${esc(p.set)}" ${p.set===cur.set?'selected':''}>${esc(p.set_name||p.set)} — ${esc((p.set||'').toUpperCase())}${p.released_at?' · '+esc(p.released_at):''}</option>`).join('')}
+          ${[...prints].sort((a,b) => String(a.set_name||a.set).localeCompare(String(b.set_name||b.set), 'fr')).map(p => `<option value="${esc(p.set)}" ${p.set===cur.set?'selected':''}>${esc(p.set_name||p.set)}</option>`).join('')}
         </select>
       </div>
       <div class="cp-right">
@@ -168,7 +168,7 @@ async function showCardInfo(name, _box, ctx){
         </div>
       </div>
       <div>
-        <h4 class="sub">Texte de règles</h4>
+        <h4 class="sub">Texte Oracle</h4>
         <p class="hint" style="white-space:pre-wrap">${esc(cur.oracle||'')}</p>
         ${cur.scryfall_uri?`<p style="margin-top:6px"><a href="${cur.scryfall_uri}" target="_blank" style="color:var(--accent)">Lien Scryfall ↗</a></p>`:''}
       </div>
