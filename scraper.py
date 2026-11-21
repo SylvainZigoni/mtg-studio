@@ -11,6 +11,23 @@ FORMATS = {
     "PEA": "Peasant", "PREM": "Premodern", "EDH": "Duel Commander",
 }
 
+def decode_body(d, headers):
+    """Décode le corps HTTP sans jamais perdre de caractères :
+    charset déclaré dans Content-Type, sinon utf-8 strict, sinon latin-1.
+    (mtgtop8.com déclare ISO-8859-1 : un decode utf-8/replace transformait
+    chaque accent en U+FFFD écrit définitivement en base.)"""
+    ct = headers.get("Content-Type") or ""
+    m = re.search(r"charset\s*=\s*[\"']?([\w.-]+)", ct, re.I)
+    if m:
+        try:
+            return d.decode(m.group(1))
+        except (LookupError, UnicodeDecodeError):
+            pass
+    try:
+        return d.decode("utf-8")
+    except UnicodeDecodeError:
+        return d.decode("latin-1")
+
 def get(url, tries=3):
     for i in range(tries):
         try:
@@ -21,7 +38,7 @@ def get(url, tries=3):
             d = r.read()
             if r.headers.get("Content-Encoding") == "gzip":
                 d = gzip.decompress(d)
-            return d.decode("utf-8", "replace")
+            return decode_body(d, r.headers)
         except Exception as e:
             if i == tries - 1:
                 print("FAIL", url, e); return None
