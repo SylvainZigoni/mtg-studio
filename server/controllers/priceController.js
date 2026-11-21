@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getPricesDb, pricesAvailable, blobPoints, blobAt, dayStr, todayOrdinal } from '../utils/pricesDb.js';
 import { loadState } from './stateController.js';
+import { dataMtimeMs } from '../utils/db.js';
 import { sendJson } from '../utils/http.js';
 import { ROOT, PRICES_DB, DB_PATH } from '../utils/paths.js';
 
@@ -137,7 +138,7 @@ export function apiMarket(req, res) {
    -> { ok, from, to, total, page, pages, kpi, hist, index:[[date,val]], rows:[{...,spark,img,img_lg}] }
    Une ligne par FINITION ayant un blob de prix (normal et/ou foil ; les 2 -> 2 lignes,
    une seule -> 1 ligne, aucune série -> 1 ligne sans prix, triée en dernier).
-   Cache 12h par requête, invalidé par le mtime de prices.db ET de mtg_data.db (collection). */
+   Cache 12h par requête, invalidé par le mtime de prices.db ET de mtg_data.db (+ -wal/-shm, mode WAL). */
 const marketCardsCache = new Map();
 const marketRunning = new Map();   // key -> Promise<result> : évite les calculs en double
 const marketStatus = { running: false, phase: '', page: 0, cards: 0, since: 0 };
@@ -377,7 +378,7 @@ export function apiMarketCards(req, res) {
   if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
   if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
   // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
-  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + fs.statSync(DB_PATH).mtimeMs;
+  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + dataMtimeMs();   // mtg_data.db + -wal/-shm (mode WAL : le .db principal ne bouge pas)
   const key = mtime + '|' + JSON.stringify({ ...q, from, to });
   const nowS = Date.now() / 1000;
   const hit = marketCardsCache.get(key);
@@ -395,6 +396,113 @@ export function apiMarketCards(req, res) {
   }).catch(e => sendJson(res, 502, { ok: false, error: String((e && e.message) || e) }));
 }
 /* Valorisation de la collection : maintenant et aux fenêtres passées */
+/* GET /api/market/sets — vue "éditions" du Marché.
+   ?from=&to= (ordinals, requis)
+   -> { ok, from, to, n, sets:[{set, n, was, now, flat, pct, impact}] }
+   Coût d'une édition = somme des prix au jour `from` ("avant") puis au jour `to` ("après"),
+   UNE valorisation par impression ET PAR FINITION : normal + foil si un prix foil existe
+   (même dédup que /api/market/cards : LOWER(name), "set", cn, anglais préféré via le CTE picked ;
+   une carte imprimée en plusieurs langues n'est valorisée qu'une fois par finition).
+   was = blobAt(normal, from) ; si aucun prix valide à from (point aberrant <= 0 ou série commencée
+   dans la fenêtre), "avant" = 1er prix valide dans [from, to] (même règle que /api/market/cards).
+   impact = somme sur les entrées de la collection de l'édition de (flat unitaire x qté), flat lu sur
+   la FINITION possédée (normal ou foil, résolue par (set,cn) -> scryfall_id via resolveCollSfid) :
+   cohérent avec le KPI "Impact sur ma collection" de la vue Cartes filtrée sur l'édition.
+   pct en fraction (comme /api/market/cards). Cache 12h, invalidé par le mtime de prices.db
+   ET de mtg_data.db + -wal/-shm (mode WAL ; la collection change les impacts). */
+const marketSetsCache = new Map();
+const marketSetsRunning = new Map();   // key -> Promise : évite les calculs en double
+
+function computeMarketSets(from, to) {
+  const c = getPricesDb();
+  const agg = new Map();   // st -> {set, n, was, now, impact}
+  const getA = st => { let a = agg.get(st); if (!a) { a = { set: st, n: 0, was: 0, now: 0, impact: 0 }; agg.set(st, a); } return a; };
+  // prix "avant" : blobAt(from) ; repli 1er prix valide dans [from,to] ; points aberrants <= 0 ignorés
+  const wasEffOf = blob => {
+    const was = blobAt(blob, from);
+    if (was != null && was > 0) return was;
+    const first = blobPoints(blob).find(p => p[0] >= from && p[0] <= to && p[1] > 0);
+    return first ? first[1] : null;
+  };
+  // ---- coût du set : une ligne par impression (même CTE picked que /api/market/cards),
+  // valorisée en NORMAL et en FOIL si un prix foil existe -> colle au KPI "Evolution totale"
+  // de la vue Cartes en "foil et non foil"
+  const rows = c.prepare(`WITH picked AS (
+      SELECT LOWER(name) AS lname, "set" AS st, cn,
+             COALESCE(MIN(CASE WHEN lang='English' THEN scryfall_id END), MIN(scryfall_id)) AS sfid
+      FROM cards GROUP BY LOWER(name), "set", cn)
+    SELECT c.scryfall_id, c."set" AS st, s.normal, s.foil
+    FROM picked p JOIN cards c ON c.scryfall_id = p.sfid JOIN series s ON s.uuid = c.uuid
+    WHERE s.normal IS NOT NULL OR s.foil IS NOT NULL`).all();
+  for (const r of rows) {
+    if (!r.st) continue;
+    const a = getA(r.st);
+    let counted = false;
+    for (const blob of [r.normal, r.foil]) {   // chaque impression valorisée en normal + foil
+      if (!blob) continue;
+      const wasEff = wasEffOf(blob);
+      const nowP = blobAt(blob, to);
+      if (wasEff == null || nowP == null) continue;   // pas d'évolution calculable sur la fenêtre
+      a.was += wasEff;
+      a.now += nowP;
+      counted = true;
+    }
+    if (counted) a.n++;
+  }
+  // ---- impact collection : flat de la finition possédée (normal ou foil) x qté, par entrée
+  for (const e of collectionEntries()) {
+    if ((e.qty || 1) <= 0) continue;
+    const sc = String(e.set || '').toUpperCase();
+    if (!sc) continue;
+    const sfid = resolveCollSfid(c, e);
+    if (!sfid) continue;
+    const row = c.prepare('SELECT s.normal, s.foil FROM cards c JOIN series s ON s.uuid = c.uuid WHERE c.scryfall_id = ?').get(sfid);
+    if (!row) continue;
+    const blob = e.foil ? row.foil : row.normal;
+    if (!blob) continue;
+    const wasEff = wasEffOf(blob);
+    const nowP = blobAt(blob, to);
+    if (wasEff == null || nowP == null) continue;
+    getA(sc).impact += (nowP - wasEff) * (e.qty || 1);
+  }
+  const sets = [...agg.values()].map(a => {
+    const hasCost = a.n > 0;   // set avec au moins une impression valorisable en normal
+    return {
+      set: a.set, n: a.n,
+      was: hasCost ? round2(a.was) : null, now: hasCost ? round2(a.now) : null,
+      flat: hasCost ? round2(a.now - a.was) : null,
+      pct: hasCost && a.was > 0 ? (a.now - a.was) / a.was : null,
+      impact: round2(a.impact),
+    };
+  });
+  return { ok: true, from: dayStr(from), to: dayStr(to), n: sets.length, sets };
+}
+
+export function apiMarketSets(req, res) {
+  const q = req.query;
+  const from = parseInt(q.from, 10) || 0;
+  const to = Math.max(from, parseInt(q.to, 10) || todayOrdinal());
+  if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
+  if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
+  // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
+  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + dataMtimeMs();   // mtg_data.db + -wal/-shm (mode WAL : le .db principal ne bouge pas)
+  const key = mtime + '|' + from + '|' + to;
+  const nowS = Date.now() / 1000;
+  const hit = marketSetsCache.get(key);
+  if (hit && nowS - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
+  if (marketSetsCache.size > 8) marketSetsCache.delete(marketSetsCache.keys().next().value);
+  let p = marketSetsRunning.get(key);
+  if (!p) {
+    p = Promise.resolve().then(() => computeMarketSets(from, to));
+    marketSetsRunning.set(key, p);
+    p.finally(() => marketSetsRunning.delete(key)).catch(() => {});
+  }
+  p.then(result => {
+    marketSetsCache.set(key, { ts: nowS, result });
+    sendJson(res, 200, result);
+  }).catch(e => sendJson(res, 502, { ok: false, error: String((e && e.message) || e) }));
+}
+
 /* Valeur totale de CHAQUE extension en une seule requête SQL depuis prices.db (cache 12h).
    Équivalent à la somme des prix Scryfall par set, mais instantané : pas d'appel API externe. */
 const setValsCache = { ts: 0, result: null };
