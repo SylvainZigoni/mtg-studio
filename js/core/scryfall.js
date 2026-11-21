@@ -113,8 +113,11 @@ async function sfSetPrints(name, setCode){
     name:c.name, printed_name:c.printed_name || null, set:c.set, set_name:c.set_name, cn:c.collector_number,
     released_at:c.released_at,
     image:(c.image_uris && c.image_uris.normal) || (c.card_faces && c.card_faces[0].image_uris && c.card_faces[0].image_uris.normal) || null,
+    image_lg:(c.image_uris && c.image_uris.large) || (c.card_faces && c.card_faces[0].image_uris && c.card_faces[0].image_uris.large) || null,
     eur:c.prices ? c.prices.eur : null, eur_foil:c.prices ? c.prices.eur_foil : null,
-    lang:c.lang, finishes:c.finishes || [], type_line:c.type_line, mv:c.cmc,
+    lang:c.lang, finishes:c.finishes || [], type_line:c.type_line, mv:c.cmc, colors:c.colors, rarity:c.rarity, artist:c.artist,
+    oracle_id:c.oracle_id, id:c.id, scryfall_uri:c.scryfall_uri, reserved:!!c.reserved, legalities:c.legalities || {},
+    oracle:(c.oracle_text || (c.card_faces||[]).map(f=>f.oracle_text).join(' // ')) || '',
   }));
 }
 async function printFor(entry){  // l'édition possédée, sinon la plus ancienne

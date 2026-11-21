@@ -1,4 +1,4 @@
-import { $, $$, esc, norm, eur, CONDS, LANGS, frDate } from '../core/util.js';
+import { $, $$, esc, norm, eur, CONDS, COND_LABEL, LANGS, frDate } from '../core/util.js';
 import { addEntry, setTags, tags, entries, collection, saveColl, saveTags, ownedQtyMap } from '../core/model.js';
 import { sfAutocomplete, sfCardByName, sfPrints, sfSetPrints, sfSearch, sfCache } from '../core/scryfall.js';
 import { dbPrices, dbFoil, lastPoint } from '../core/pricedb.js';
@@ -134,7 +134,8 @@ async function showCardInfo(name, _box, ctx){
     if(alt) cur = alt;
 
     const k = norm(name);
-    const cp = cur.id ? dbPrices(cur.id) : null;   // prix prices.db du print affiché (jamais Scryfall)
+    let cp = cur.id ? dbPrices(cur.id) : null;   // prix prices.db du print affiché (jamais Scryfall)
+    if(!cp){ const other = prints.find(p => p.id && dbPrices(p.id)); if(other) cp = dbPrices(other.id); }   // repli : derniers prix connus de la carte
     const cpN = cp ? (cp[0] ?? cp[1]) : null, cpF = cp ? cp[1] : null;
     const foilOk = (cur.finishes||[]).includes('foil') || dbFoil(cur.id) != null;
     const qSet = ownedQtyMap().get(k+'|'+(cur.set||'')) || 0;   // qté dans CETTE édition (foil + non foil)
@@ -157,10 +158,11 @@ async function showCardInfo(name, _box, ctx){
       </div>
       <div class="cp-right">
         <h2 style="margin-bottom:2px">${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h2>
-        <p class="hint">Édition : <b>${esc(cur.set_name||'')}</b> <span class="pill">${esc((cur.set||'').toUpperCase())}</span>${cur.released_at?` <span class="pill">sortie : ${frDate(cur.released_at)}</span>`:''}${cur.cn!=null?` <span class="pill">n° ${esc(String(cur.cn))}</span>`:''} <span class="pill">${esc((cur.lang||'en').toUpperCase())}</span></p>
+        <p class="hint">${esc(cur.type_line||'')}${cur.mv!=null?` · mv ${cur.mv}`:''} · <b>${esc(LANGS[cur.lang]||cur.lang||'Anglais')} (${esc((cur.lang||'en').toUpperCase())})</b></p>
+        <p class="hint">Édition : <b>${esc(cur.set_name||'')}</b> <span class="pill">${esc((cur.set||'').toUpperCase())}</span>${cur.released_at?` <span class="pill">sortie : ${frDate(cur.released_at)}</span>`:''}${cur.cn!=null?` <span class="pill">n° ${esc(String(cur.cn))}</span>`:''}</p>
         <p style="margin:6px 0"><b>Prix :</b> <span class="price" style="color:var(--warn);font-weight:700">${cpN!=null?eur(cpN):'—'}</span>${cpF!=null?` · foil <b style="color:var(--warn)">${eur(cpF)}</b>`:` · <span class="hint">pas de prix foil</span>`} <span class="pill">Cardmarket via prices.db${lastPoint()?` au ${lastPoint()}`:''}</span></p>
-        <p class="hint">Langues dispo : ${langList.map(l=>`<span class="pill">${esc(l.toUpperCase())}</span>`).join(' ')}</p>
-        <p class="hint">Dans collection (${esc((cur.set||'').toUpperCase())}) : ${mine.length ? mine.map(e=>`${e.qty}× ${(e.lang||'en').toUpperCase()}${e.foil?' · Foil':''}${e.signed?' · Signée':''} - ${e.cond||'NM'}`).join(' ; ') : '—'}</p>
+        <p class="hint">Langues dispo : <span class="pillrow" style="display:inline-flex">${langList.map(l=>`<span class="pill infopill" title="${esc(LANGS[l]||l)}">${esc(l.toUpperCase())}</span>`).join('')}</span></p>
+        <div class="hint">Dans collection (${esc((cur.set||'').toUpperCase())}) : ${mine.length ? mine.map(e=>`<div class="pillrow"><b>${e.qty}×</b><span class="pill infopill" title="Langue : ${esc(LANGS[e.lang]||e.lang||'Anglais')}">${esc((e.lang||'en').toUpperCase())}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${esc(COND_LABEL[e.cond]||e.cond||'NM')}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}</div>`).join('') : '—'}</div>
         <div class="cp-add">
           <h4 class="sub" style="margin-top:0">Ajouter à ma collection</h4>
           <div class="row" style="flex-wrap:wrap;gap:10px">
@@ -196,7 +198,7 @@ async function showCardInfo(name, _box, ctx){
         </div>
       </div>
       <div>
-        <h4 class="sub">Texte oracle</h4>
+        <h4 class="sub">Texte de règles</h4>
         <p class="hint" style="white-space:pre-wrap">${esc(cur.oracle||'')}</p>
         ${cur.scryfall_uri?`<p style="margin-top:6px"><a href="${cur.scryfall_uri}" target="_blank" style="color:var(--accent)">Lien Scryfall ↗</a></p>`:''}
       </div>
