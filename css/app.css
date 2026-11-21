@@ -300,4 +300,4 @@ input[type=range]{accent-color:var(--accent)}
 .cp-mid>div{flex:1;min-width:280px}
 
 /* boule de rareté de la popup fiche carte : 1em = taille exacte du texte du h2 */
-.cp-right h2 .rarity-dot{width:1em;height:1em;vertical-align:-.15em;margin-right:8px;border-width:2px}
+.cp-right h2 .rarity-dot{width:.8em;height:.8em;vertical-align:-.1em;margin-right:8px;border-width:2px}
