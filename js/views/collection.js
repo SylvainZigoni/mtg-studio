@@ -8,13 +8,6 @@ import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds }
 import { R, S } from '../core/registry.js';
 import { dbPrices, dbFoil } from '../core/pricedb.js';
 
-/* prix affiché (popup d'ajout) = prices.db via le scryfall_id du print */
-function apPriceTxt(p){
-  const pp = p && p.id ? dbPrices(p.id) : null;
-  const n = pp ? (pp[0] ?? pp[1]) : null, f = pp ? pp[1] : null;
-  return (n != null ? eur(n) : '—') + (f != null ? ` / ✦ ${eur(f)}` : '');
-}
-
 /* ============================================================
    VUE COLLECTION
    ============================================================ */
@@ -641,83 +634,6 @@ async function openBulkEditor(sel){
   };
 }
 
-/* popup d'ajout rapide depuis une tuile (recherche avancée / détail d'extension) :
-   l'édition est fixée à l'impression cliquée — pas de grille de choix d'édition */
-async function openAddPopup(name, preset){
-  preset = preset || {};
-  let prints = [];
-  try{ prints = await sfPrints(name); }catch(e){}
-  if(!prints.length){ addEntry({name, qty:1, tags:[]}); return; }
-  // printings de CETTE édition, toutes langues (requête set:<code> !"nom" — source fiable)
-  let pool = prints;
-  if(preset.set){
-    try{ const sp = await sfSetPrints(name, preset.set); if(sp.length) pool = sp; }catch(e){}
-  }
-  let cur = (preset.set && pool.find(x => x.set===preset.set && (!preset.cn || String(x.cn)===String(preset.cn))))
-         || (preset.set && pool.find(x => x.set===preset.set)) || pool[0] || prints[0];
-  // langues disponibles pour cette carte DANS cette édition (champ lang des printings Scryfall)
-  let langList = [...new Set(pool.filter(x => x.set===cur.set).map(x => x.lang).filter(Boolean))];
-  if(!langList.length) langList = [...new Set(pool.map(x => x.lang).filter(Boolean))];
-  if(!langList.length) langList = [...new Set(prints.map(x => x.lang).filter(Boolean))];
-  if(!langList.length) langList.push('en');
-  let langVal = langList.includes('en') ? 'en' : (cur.lang || langList[0]);   // anglais par défaut si dispo
-  const foilOk = p => (p.finishes||[]).includes('foil') || dbFoil(p && p.id) != null;        // imprimée en foil ou non (prix foil dans prices.db)
-  openModal(`
-  <button class="close" id="mclose">✕</button>
-  <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
-    <img id="apimg" src="${cur.image||''}" style="width:150px;border-radius:10px;background:#000" alt="">
-    <div style="flex:1;min-width:260px">
-      <h3 style="margin-bottom:2px">${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h3>
-      <p class="hint" id="apsetline">Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span></p>
-      <p id="apprice" style="color:var(--warn);font-weight:700;margin:4px 0">${apPriceTxt(cur)}</p>
-      <div class="row" style="flex-wrap:wrap;gap:10px">
-        <label class="row" style="gap:6px"><b>Langue :</b>
-          <select id="aplang" title="Langues disponibles pour cette carte dans cette édition">
-            ${langList.map(lg => `<option value="${lg}" ${lg===langVal?'selected':''}>${LANGS[lg]||lg}</option>`).join('')}
-          </select></label>
-        <label class="row" style="gap:6px"><b>État :</b>
-          <select id="apcond">${CONDS.map(([v,l]) => `<option value="${v}" ${v==='NM'?'selected':''}>${v} — ${l}</option>`).join('')}</select></label>
-        <label class="row" id="apfoilwrap" style="gap:6px" title="${foilOk(cur)?'Cette impression existe en foil':'Cette impression n\'existe pas en foil'}"><input type="checkbox" id="apfoil" ${foilOk(cur)?'':'disabled'}> Foil</label>
-        <label class="row" style="gap:6px"><input type="checkbox" id="apsigned"> Signée</label>
-        <label class="row" style="gap:6px"><b>Qté :</b> <input type="number" id="apqty" value="1" min="1" max="99" style="width:70px"></label>
-      </div>
-      <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">
-        <select id="aptags" multiple size="${Math.min(6, Math.max(3, tags.length))}" style="min-width:180px">
-          ${tags.map(t=>`<option>${esc(t)}</option>`).join('')}
-        </select>
-        <button class="btn ghost" id="apnewtag">+ tag</button>
-        <button class="btn" id="apok">Ajouter à la collection</button>
-      </div>
-    </div>
-  </div>`);
-  $('#mclose').onclick = closeModal;
-  // changer de langue = changer de printing dans la même édition (visuel, n°, prix, foil mis à jour)
-  $('#aplang').onchange = e => {
-    langVal = e.target.value;
-    const alt = pool.find(x => x.set===cur.set && x.lang===langVal);
-    if(alt && alt !== cur){
-      cur = alt;
-      $('#apimg').src = cur.image || '';
-      $('#apsetline').innerHTML = `Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span>`;
-      $('#apprice').textContent = `${apPriceTxt(cur)}`;
-      const ok = foilOk(cur), cb = $('#apfoil');
-      cb.disabled = !ok; if(!ok) cb.checked = false;
-      $('#apfoilwrap').style.opacity = ok ? 1 : .45;
-      $('#apfoilwrap').title = ok ? 'Cette impression existe en foil' : 'Cette impression n\'existe pas en foil';
-    }
-  };
-  $('#apnewtag').onclick = () => { const n = prompt('Nom du tag ?');
-    if(n){ setTags([...new Set([...tags, n])]); saveTags();
-      $('#aptags').innerHTML += `<option selected>${esc(n)}</option>`; } };
-  $('#apok').onclick = () => {
-    const chosen = [...$('#aptags').selectedOptions].map(o=>o.value);
-    const foil = !$('#apfoil').disabled && $('#apfoil').checked;
-    addEntry({name:cur.name, set:cur.set, cn:cur.cn, foil, signed:$('#apsigned').checked,
-      qty:+$('#apqty').value||1, cond:$('#apcond').value, lang:langVal, tags:chosen});
-    closeModal();
-    refreshTileOwned(cur.name, cur.set);   // met à jour le badge ×N sans relancer la recherche
-  };
-}
 /* met à jour le badge ×N des tuiles d'une carte+édition (toutes langues/états confondus) */
 function refreshTileOwned(name, set){
   const s = set || '';
@@ -731,6 +647,6 @@ function refreshTileOwned(name, set){
   });
 }
 R.views.collection = vCollection; R.vCollection = vCollection;
-R.openAddPopup = openAddPopup; R.openEntryEditor = openEntryEditor;
+R.openEntryEditor = openEntryEditor; R.refreshTileOwned = refreshTileOwned;
 
-export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, openBulkEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, setCollSort, TYPES_LIST };
+export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, openBulkEditor, promptTagsFor, refreshTileOwned, collF, collSort, setCollSort, TYPES_LIST };

@@ -1,10 +1,11 @@
 import { $, eur } from './core/util.js';
 function openModal(html){
-  $('#modal').innerHTML = html;
+  const m = $('#modal'); m.classList.remove('wide');
+  m.innerHTML = html;
   $('#modalbg').classList.add('open');
-  $('#modalbg').onclick = e => { if(e.target.id==='modalbg') e.target.classList.remove('open'); };
+  $('#modalbg').onclick = e => { if(e.target.id==='modalbg'){ e.target.classList.remove('open'); m.classList.remove('wide'); } };
 }
-function closeModal(){ $('#modalbg').classList.remove('open'); }
+function closeModal(){ $('#modalbg').classList.remove('open'); $('#modal').classList.remove('wide'); }
 
 /* ---- jauge de prix à deux poignées (échelle logarithmique) ----
    Bornes initiales : /api/pricerange (min/max de prices.db), repli 0,01 €..1000 €.

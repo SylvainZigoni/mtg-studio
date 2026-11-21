@@ -106,8 +106,8 @@ const inp = $('#globsearch'), sugg = $('#gsugg');
     const it = e.target.closest('.sug'); if(!it) return;
     inp.value=''; sugg.style.display='none';
     if(it.dataset.kind === 'card'){
-      // résultat carte -> onglet Recherche avancée, toutes les impressions de la carte
-      R.gotoAdvSearch(it.dataset.id);
+      // résultat carte -> popup fiche carte (1re impression)
+      R.showCardInfo(it.dataset.id);
     }
     else if(it.dataset.kind === 't8deck') R.showDeck(+it.dataset.id);
     else if(it.dataset.kind === 'mydeck'){ R.setView('mydecks'); R.openMyDeck(it.dataset.id); }
