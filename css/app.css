@@ -304,3 +304,10 @@ input[type=range]{accent-color:var(--accent)}
 
 /* petit drapeau de langue (pills) */
 .langflag{width:18px;height:12px;border-radius:2px;object-fit:cover;border:1px solid var(--border);vertical-align:-1px}
+
+/* dropdown langue custom (popup ajout) : langue a gauche, drapeau a droite */
+.langdd{position:relative;display:inline-block}
+.langdd-btn{display:inline-flex;align-items:center;gap:8px}
+.langdd-list{position:absolute;z-index:20;top:100%;left:0;margin-top:4px;background:var(--panel);border:1px solid var(--border);border-radius:8px;min-width:190px;max-height:230px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.langdd-item{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:6px 10px;cursor:pointer}
+.langdd-item:hover{background:var(--panel2)}

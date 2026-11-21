@@ -130,15 +130,20 @@ async function showCardInfo(name, _box, ctx){
         <h2 style="margin-bottom:2px">${R.rarityDotHTML ? R.rarityDotHTML(cur.rarity) : ''}${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h2>
         <p class="hint">Édition : <b>${esc(cur.set_name||'')}</b> <span class="pill">${esc((cur.set||'').toUpperCase())}</span>${cur.released_at?` <span class="pill">sortie : ${frDate(cur.released_at)}</span>`:''}${cur.cn!=null?` <span class="pill">n° ${esc(String(cur.cn))}</span>`:''}</p>
         <p style="margin:6px 0"><b>Prix :</b> <span class="price" style="color:var(--warn);font-weight:700">${cpN!=null?eur(cpN):'—'}</span>${cpF!=null?` · foil <b style="color:var(--warn)">${eur(cpF)}</b>`:` · <span class="hint">pas de prix foil</span>`} <span class="pill">Cardmarket via prices.db${lastPoint()?` au ${frDate(lastPoint())}`:''}</span></p>
-        <p class="hint">Langues dispo : <span class="pillrow" style="display:inline-flex">${langList.map(l=>`<span class="pill infopill">${langFlagHTML(l)}</span>`).join('')}</span></p>
-        <div class="hint">Dans collection (${esc((cur.set||'').toUpperCase())}) : ${mine.length ? mine.map(e=>`<div class="pillrow"><b>${e.qty}×</b><span class="pill infopill">${langFlagHTML(e.lang)}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${esc(COND_LABEL[e.cond]||e.cond||'NM')}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}</div>`).join('') : '—'}</div>
+        <p class="hint">Langues dispo : <span style="display:inline-flex;gap:4px;vertical-align:middle">${langList.map(l=>langFlagHTML(l)).join('')}</span></p>
+        <div class="hint">Dans collection (${esc((cur.set||'').toUpperCase())}) : ${mine.length ? mine.map(e=>`<div class="pillrow"><b>${e.qty}×</b>${langFlagHTML(e.lang)}<span class="pill infopill cond-${e.cond||'NM'}" title="État : ${esc(COND_LABEL[e.cond]||e.cond||'NM')}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}</div>`).join('') : '—'}</div>
         <div class="cp-add">
           <h4 class="sub" style="margin-top:0">Ajouter à ma collection</h4>
           <div class="row" style="flex-wrap:wrap;gap:10px">
             <label class="row" style="gap:6px"><b>Langue :</b>
-              <select id="cp-lang" title="Langues disponibles pour cette carte dans cette édition">
-                ${langList.map(lg => `<option value="${lg}" ${lg===st.form.lang?'selected':''}>${LANGS[lg]||lg}</option>`).join('')}
-              </select></label>
+              <div class="langdd" id="cp-langdd">
+                <button type="button" class="btn ghost langdd-btn" id="cp-langbtn" title="Langues disponibles pour cette carte dans cette édition">
+                  <span id="cp-langbtn-label">${esc(LANGS[st.form.lang]||st.form.lang)}</span><span id="cp-langbtn-flag">${langFlagHTML(st.form.lang)}</span>
+                </button>
+                <div class="langdd-list" id="cp-langlist" style="display:none">
+                  ${langList.map(lg => `<div class="langdd-item" data-v="${esc(lg)}"><span>${esc(LANGS[lg]||lg)}</span>${langFlagHTML(lg)}</div>`).join('')}
+                </div>
+              </div></label>
             <label class="row" style="gap:6px"><b>État :</b>
               <select id="cp-cond">${CONDS.map(([v,l]) => `<option value="${v}" ${v===st.form.cond?'selected':''}>${v} — ${l}</option>`).join('')}</select></label>
             <label class="row" id="cp-foilwrap" style="gap:6px" title="${foilOk?'Cette impression existe en foil':'Cette impression n\'existe pas en foil'}"><input type="checkbox" id="cp-foil" ${foilOk?'':'disabled'} ${st.form.foil?'checked':''}> Foil</label>
@@ -184,7 +189,18 @@ async function showCardInfo(name, _box, ctx){
       const p = prints.find(x => x.set === e.target.value);
       if(p){ cur = p; await render(); }
     };
-    $('#cp-lang').onchange = e => { st.form.lang = e.target.value; };
+    $('#modal #cp-langbtn').onclick = e => {
+      e.stopPropagation();
+      const l = $('#modal #cp-langlist');
+      l.style.display = l.style.display === 'none' ? 'block' : 'none';
+    };
+    $$('#modal #cp-langlist .langdd-item').forEach(it => it.onclick = () => {
+      st.form.lang = it.dataset.v;
+      $('#modal #cp-langbtn-label').textContent = it.querySelector('span').textContent;
+      $('#modal #cp-langbtn-flag').innerHTML = langFlagHTML(st.form.lang);
+      $('#modal #cp-langlist').style.display = 'none';
+    });
+    $('#modal').onclick = e => { if(!e.target.closest('#cp-langdd')){ const l = $('#modal #cp-langlist'); if(l) l.style.display = 'none'; } };
     $('#cp-cond').onchange = e => { st.form.cond = e.target.value; };
     $('#cp-foil').onchange = e => { st.form.foil = e.target.checked; };
     $('#cp-signed').onchange = e => { st.form.signed = e.target.checked; };
