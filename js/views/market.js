@@ -434,7 +434,7 @@ let mkSetsData = null;   // { j, rows } : dernières données reçues (re-tri lo
 function setsTableHTML(rows){
   const th = (k, label, w) => `<th data-s="${k}" style="${w?`width:${w};`:''}cursor:pointer;user-select:none">${label}${mk.esort===k?(mk.edir==='asc'?' ▲':' ▼'):''}</th>`;
   return `<table id="mk-table"><thead><tr>
-    <th style="width:6%"></th>${th('name','Extension','38%')}${th('date','Date','8%')}<th style="width:20%;cursor:default">Coût du set (avant → après)</th>${th('flat','Évol. €','10%')}${th('pct','Évol. %','6%')}${th('impact','Impact coll.','12%')}
+    <th style="width:6%"></th>${th('name','Extension','38%')}${th('date','Date','8%')}${th('now','Coût du set (avant → après)','20%')}${th('flat','Évol. €','10%')}${th('pct','Évol. %','6%')}${th('impact','Impact coll.','12%')}
   </tr></thead><tbody>
   ${rows.map(r => `<tr data-s="${esc(r.code)}" style="cursor:pointer" title="Basculer sur la vue Cartes avec cette extension en filtre">
     <td>${r.icon?`<img class="seticon" src="${r.icon}" style="width:24px;height:24px" alt="">`:'◈'}</td>
@@ -458,6 +458,7 @@ function renderSetsTable(app){
     flat: (a, b) => (a.flat ?? -Infinity) - (b.flat ?? -Infinity),
     pct: (a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity),
     impact: (a, b) => (a.impact ?? -Infinity) - (b.impact ?? -Infinity),
+    now: (a, b) => (a.now ?? -Infinity) - (b.now ?? -Infinity),   // colonne "Coût du set" = tri sur le coût APRÈS
   })[mk.esort] || ((a, b) => String(a.released_at || '').localeCompare(String(b.released_at || '')));
   const sorted = rows.slice().sort((a, b) => {
     const noA = a.flat == null, noB = b.flat == null;
