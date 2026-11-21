@@ -28,7 +28,7 @@ import { R, S } from '../core/registry.js';
    ============================================================ */
 const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
 const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Joueurs']];
-const T8_COLW = [12, 6, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
+const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
 let t8 = { fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
