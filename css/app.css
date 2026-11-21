@@ -318,7 +318,7 @@ input[type=range]{accent-color:var(--accent)}
 .t8kpi{text-align:center;padding:22px 16px}
 .t8kpi .big{font-size:27px;font-weight:700;color:var(--accent);line-height:1.25}
 .t8kpi .big2{font-size:20px;font-weight:600;margin-top:4px}
-.archlist{max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-top:8px}
+.archlist{height:var(--t8list-h);overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-top:8px}
 .arch-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:13px}
 .arch-item:hover{background:var(--panel2)}
 .arch-item .hint{white-space:nowrap}
@@ -351,3 +351,16 @@ tr.dkrow .arch{color:var(--accent2);font-weight:600}
 .evrange input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;pointer-events:auto;width:16px;height:16px;border-radius:50%;background:var(--panel);border:2px solid var(--accent);cursor:grab}
 .evrange input[type=range]::-moz-range-thumb{pointer-events:auto;width:13px;height:13px;border-radius:50%;background:var(--panel);border:2px solid var(--accent);cursor:grab}
 .ev-labs{position:absolute;top:27px;left:0;right:0;display:flex;justify-content:space-between;font-size:11px;color:var(--muted);white-space:nowrap}
+
+/* ===== v2 : Go intégrés aux champs, colonnes en %, hauteur fixe 60vh, scroll interne ===== */
+:root{--t8list-h:60vh}
+.gosearch{position:relative;display:inline-flex}
+.gosearch input[type=text]{min-width:180px;padding-right:46px}
+.gosearch .btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:2px 10px;font-size:12px;border-radius:6px}
+.evscroll{height:var(--t8list-h);overflow-y:auto;border:1px solid var(--border);border-radius:8px}
+.evtable{table-layout:fixed}
+.evtable thead th{position:sticky;top:0;background:var(--panel);z-index:2}
+.evtable td{overflow:hidden}
+.evtable td.c-place{white-space:nowrap;text-overflow:ellipsis}
+.evtable td.c-name{overflow-wrap:break-word}
+.evtable td.c-chev,.evtable th.c-chev{text-align:center}

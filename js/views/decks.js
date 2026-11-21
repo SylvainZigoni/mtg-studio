@@ -9,31 +9,34 @@ import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
 
 /* ============================================================
-   VUE TOURNOIS & DECKS
-   ============================================================ */
-/* ============================================================
    VUE TOURNOIS MTGTop8 — recherche de tournois (dev-top8_tournament)
    - filtres haut de page : formats (menu déroulant multi-checkbox,
-     aucun coché = tous), nombre de joueurs (choix unique : <20/<50/
-     <100/<200/>=200 ; tournois sans nb de joueurs toujours visibles),
-     recherche tournoi (champ + bouton Go, nom + lieu, insensible
-     casse/accents), champs joueur/carte présents mais inactifs,
-     jauge de dates à 2 curseurs (défaut = pleine plage des events)
+     aucun coché = tous), nombre de joueurs (choix unique : +19/+49/
+     +99/+199 = "plus de N" ; tournois sans nb de joueurs toujours
+     visibles), recherche tournoi (bouton Go intégré au champ,
+     nom + lieu, insensible casse/accents), champs joueur/carte
+     présents mais inactifs, jauge de dates à 2 curseurs
+     (défaut = pleine plage des events)
    - KPI + panneau Archétype calculés sur TOUS les decks filtrés
-   - liste des tournois : tri défaut date décroissante, en-têtes
-     cliquables, pagination 100/page, lignes multi-dépliables
+   - tableau des tournois : colonnes Date 12% / Format 6% / Nom 45% /
+     Lieu 25% (sans retour à la ligne) / Nb joueurs 10% / flèche 2%,
+     tri par en-têtes cliquables (défaut date décroissante), hauteur
+     fixe avec scroll interne (plus de pagination), lignes
+     multi-dépliables, contenu du déplié généré au premier clic
    - déplié : decks du tournoi triés rang croissant, égalité de rang
      -> ordre alphabétique du nom du deck ; clic ligne -> showDeck
    ============================================================ */
-const T8_PAGE = 100;
-const T8_BUCKETS = [['ALL','Nombre de joueur'],['lt20','Moins de 20'],['lt50','Moins de 50'],['lt100','Moins de 100'],['lt200','Moins de 200'],['ge200','Plus de 200']];
-const T8_COLS = {date:'Date', name:'Nom du tournoi', place:'Lieu', players:'Nombre de joueurs'};
-let t8 = { fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', page:1, open:new Set(), _rt:null };
+const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
+const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Nombre de joueurs']];
+const T8_COLW = [12, 6, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
+const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
+let t8 = { fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
 let t8Bounds = null;    // bornes (ordinaux de jours) des dates d'events
 let ddCloseBound = false;
 
 const fmtLabel = c => (FMT_META && FMT_META.find(f => f.code===c)?.name) || FMT_NAMES[c] || c;
+const fmtShort = c => FMT_SHORT[c] || String(c||'').slice(0,3).toUpperCase();
 
 async function loadFmtMeta(){
   if(FMT_META !== null) return;
@@ -53,11 +56,10 @@ function t8playersOk(e){
   if(t8.players==='ALL') return true;
   const p = e.players;
   if(p==null || p===0) return true;          // nb de joueurs inconnu : toujours visible
-  if(t8.players==='lt20')  return p<20;
-  if(t8.players==='lt50')  return p<50;
-  if(t8.players==='lt100') return p<100;
-  if(t8.players==='lt200') return p<200;
-  if(t8.players==='ge200') return p>=200;
+  if(t8.players==='gt19')  return p>19;
+  if(t8.players==='gt49')  return p>49;
+  if(t8.players==='gt99')  return p>99;
+  if(t8.players==='gt199') return p>199;
   return true;
 }
 
@@ -74,6 +76,7 @@ function t8sorted(list){
   const c = t8.sortCol, d = t8.sortDir==='desc' ? -1 : 1;
   const val = e => c==='players' ? (e.players==null ? null : +e.players)
     : c==='date' ? (e.date||'')
+    : c==='fmt' ? fmtShort(e.fmt)
     : c==='name' ? norm(e.name||'') : norm(e.place||'');
   return [...list].sort((a,b) => {
     const va = val(a), vb = val(b);
@@ -87,6 +90,14 @@ function t8decksOf(e){
   if(!e._sd) e._sd = e.decks.slice().sort((a,b) =>
     (DECKS[a][2]-DECKS[b][2]) || norm(DECKS[a][3]||'').localeCompare(norm(DECKS[b][3]||'')));
   return e._sd;
+}
+
+function t8deckSubHTML(e){
+  const dks = t8decksOf(e).map(i => {
+    const d = DECKS[i];
+    return `<tr class="dkrow" data-i="${i}"><td>#${d[2]}</td><td>${esc(d[3]||'')}</td><td class="arch" data-arch="${esc(d[4]||'')}">${esc(d[4]||'—')}</td><td>${esc(d[5]||'')}</td></tr>`;
+  }).join('');
+  return `<table class="decksub"><thead><tr><th>#</th><th>Deck</th><th>Archétype</th><th>Joueur</th></tr></thead><tbody>${dks || '<tr><td colspan="4" class="hint">Aucun deck référencé.</td></tr>'}</tbody></table>`;
 }
 
 const t8fmtBtnLabel = () => t8.fmts.length ? `Format · ${t8.fmts.length} coché${t8.fmts.length>1?'s':''} ▾` : 'Format ▾';
@@ -108,12 +119,9 @@ async function vDecks(app){
         </div>
       </div>
       <select id="t8players">${T8_BUCKETS.map(([v,l]) => `<option value="${v}" ${t8.players===v?'selected':''}>${l}</option>`).join('')}</select>
-      <input type="text" id="t8q" placeholder="Rechercher un tournoi" value="${esc(t8.q)}">
-      <button type="button" class="btn" id="t8qgo">Go</button>
-      <input type="text" id="t8qp" placeholder="Rechercher un joueur" title="Bientôt disponible">
-      <button type="button" class="btn ghost" id="t8qpgo" title="Bientôt disponible">Go</button>
-      <input type="text" id="t8qc" placeholder="Rechercher une carte" title="Bientôt disponible">
-      <button type="button" class="btn ghost" id="t8qcgo" title="Bientôt disponible">Go</button>
+      <span class="gosearch"><input type="text" id="t8q" placeholder="Rechercher un tournoi" value="${esc(t8.q)}"><button type="button" class="btn" id="t8qgo">Go</button></span>
+      <span class="gosearch"><input type="text" id="t8qp" placeholder="Rechercher un joueur" title="Bientôt disponible"><button type="button" class="btn ghost" id="t8qpgo" title="Bientôt disponible">Go</button></span>
+      <span class="gosearch"><input type="text" id="t8qc" placeholder="Rechercher une carte" title="Bientôt disponible"><button type="button" class="btn ghost" id="t8qcgo" title="Bientôt disponible">Go</button></span>
     </div>
     <div class="row" style="margin-top:12px">
       <span class="hint">Date :</span>
@@ -144,14 +152,14 @@ async function vDecks(app){
     if(!fmtall.checked) return;
     t8.fmts = [];
     app.querySelectorAll('.fmtchk').forEach(c => c.checked = false);
-    syncFmt(); t8.page = 1; renderT8Results(app);
+    syncFmt(); renderT8Results(app);
   };
   app.querySelectorAll('.fmtchk').forEach(c => c.onchange = () => {
     t8.fmts = [...app.querySelectorAll('.fmtchk:checked')].map(x => x.value);
-    syncFmt(); t8.page = 1; renderT8Results(app);
+    syncFmt(); renderT8Results(app);
   });
-  app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; t8.page = 1; renderT8Results(app); };
-  const doQ = () => { t8.q = app.querySelector('#t8q').value.trim(); t8.page = 1; renderT8Results(app); };
+  app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; renderT8Results(app); };
+  const doQ = () => { t8.q = app.querySelector('#t8q').value.trim(); renderT8Results(app); };
   app.querySelector('#t8qgo').onclick = doQ;
   app.querySelector('#t8q').onkeydown = e => { if(e.key==='Enter') doQ(); };
   const evmin = app.querySelector('#evmin'), evmax = app.querySelector('#evmax');
@@ -166,7 +174,7 @@ async function vDecks(app){
     evmin.max = evmax.value; evmax.min = evmin.value;
     labs();
     clearTimeout(t8._rt);
-    t8._rt = setTimeout(() => { t8.dateFrom = +evmin.value; t8.dateTo = +evmax.value; t8.page = 1; renderT8Results(app); }, 250);
+    t8._rt = setTimeout(() => { t8.dateFrom = +evmin.value; t8.dateTo = +evmax.value; renderT8Results(app); }, 250);
   };
   evmin.oninput = onrange; evmax.oninput = onrange;
   labs();
@@ -189,38 +197,36 @@ function renderT8Results(app){
   arch.innerHTML = al.length
     ? al.map(([a,n]) => `<div class="arch-item" data-arch="${esc(a)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${totDecks ? Math.round(n/totDecks*100) : 0}%</span></div>`).join('')
     : '<p class="hint">Aucun deck dans les tournois filtrés.</p>';
-  const pages = Math.max(1, Math.ceil(evs.length / T8_PAGE));
-  if(t8.page > pages) t8.page = pages;
-  const cur = evs.slice((t8.page-1)*T8_PAGE, t8.page*T8_PAGE);
-  const th = c => `<th data-col="${c}">${T8_COLS[c]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
-  const rows = cur.map(e => {
+  const th = c => `<th data-col="${c}" class="c-${c}">${T8_COLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
+  const rows = evs.map(e => {
     const open = t8.open.has(e.eid);
-    const dks = t8decksOf(e).map(i => {
-      const d = DECKS[i];
-      return `<tr class="dkrow" data-i="${i}"><td>#${d[2]}</td><td>${esc(d[3]||'')}</td><td class="arch" data-arch="${esc(d[4]||'')}">${esc(d[4]||'—')}</td><td>${esc(d[5]||'')}</td></tr>`;
-    }).join('');
-    return `<tr class="evrow${open?' open':''}" data-eid="${e.eid}"><td>${frDate(e.date)}</td><td>${esc(e.name||'')} <span class="fmt">${esc(fmtLabel(e.fmt))}</span></td><td>${esc(e.place||'—')}</td><td>${e.players==null?'—':e.players}</td><td><span class="chev">▸</span></td></tr>` +
-      `<tr class="evdetail" data-eid="${e.eid}"${open?'':' style="display:none"'}><td colspan="5"><table class="decksub"><thead><tr><th>#</th><th>Deck</th><th>Archétype</th><th>Joueur</th></tr></thead><tbody>${dks || '<tr><td colspan="4" class="hint">Aucun deck référencé.</td></tr>'}</tbody></table></td></tr>`;
+    return `<tr class="evrow${open?' open':''}" data-eid="${e.eid}"><td class="c-date">${frDate(e.date)}</td><td class="c-fmt"><span class="fmt">${esc(fmtShort(e.fmt))}</span></td><td class="c-name">${esc(e.name||'')}</td><td class="c-place" title="${esc(e.place||'')}">${esc(e.place||'—')}</td><td class="c-players">${e.players==null?'—':e.players}</td><td class="c-chev"><span class="chev">▸</span></td></tr>` +
+      `<tr class="evdetail" data-eid="${e.eid}"${open?'':' style="display:none"'}><td colspan="6">${open ? t8deckSubHTML(e) : ''}</td></tr>`;
   }).join('');
-  box.innerHTML = `<table class="evtable"><thead><tr>${th('date')}${th('name')}${th('place')}${th('players')}<th></th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table>
-  <div class="pager"><button type="button" class="btn ghost" id="pgprev"${t8.page<=1?' disabled':''}>‹</button><span class="hint">Page ${t8.page} / ${pages} · ${evs.length} tournoi${evs.length>1?'s':''}</span><button type="button" class="btn ghost" id="pgnext"${t8.page>=pages?' disabled':''}>›</button></div>`;
+  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_COLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_COLS.map(([c]) => th(c)).join('')}<th class="c-chev"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
     else { t8.sortCol = c; t8.sortDir = c==='date' ? 'desc' : 'asc'; }
-    t8.page = 1; renderT8Results(app);
+    renderT8Results(app);
   });
+  const bindDetail = td => {
+    td.querySelectorAll('tr.dkrow').forEach(r => r.onclick = () => showDeck(+r.dataset.i));
+    td.querySelectorAll('tr.dkrow .arch').forEach(a => a.onclick = e => { e.stopPropagation(); /* action archétype : à définir avec Sylvain */ });
+  };
+  box.querySelectorAll('tr.evdetail').forEach(det => { if(det.firstElementChild.innerHTML) bindDetail(det.firstElementChild); });
   box.querySelectorAll('tr.evrow').forEach(r => r.onclick = () => {
     const eid = +r.dataset.eid, det = box.querySelector(`tr.evdetail[data-eid="${eid}"]`);
     const open = r.classList.toggle('open');
-    if(open) t8.open.add(eid); else t8.open.delete(eid);
+    if(open){
+      t8.open.add(eid);
+      if(det && !det.firstElementChild.innerHTML){
+        det.firstElementChild.innerHTML = t8deckSubHTML(EVENTS.find(x => x.eid===eid));
+        bindDetail(det.firstElementChild);
+      }
+    } else t8.open.delete(eid);
     if(det) det.style.display = open ? '' : 'none';
   });
-  box.querySelectorAll('tr.dkrow').forEach(r => r.onclick = () => showDeck(+r.dataset.i));
-  box.querySelectorAll('tr.dkrow .arch').forEach(a => a.onclick = e => { e.stopPropagation(); /* action archétype : à définir avec Sylvain */ });
-  const pv = box.querySelector('#pgprev'), nx = box.querySelector('#pgnext');
-  if(pv) pv.onclick = () => { if(t8.page>1){ t8.page--; renderT8Results(app); } };
-  if(nx) nx.onclick = () => { t8.page++; renderT8Results(app); };
 }
 
 
