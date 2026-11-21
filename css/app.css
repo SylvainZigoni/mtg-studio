@@ -356,8 +356,8 @@ tr.dkrow .arch{color:var(--accent2);font-weight:600}
 :root{--t8list-h:60vh;--t8kpi-h:104px}
 .gosearch{position:relative;display:inline-flex}
 .gosearch input[type=text]{min-width:180px;padding-right:46px}
-.gosearch .btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:2px 10px;font-size:12px;border-radius:6px}
-.evscroll{height:calc(var(--t8list-h) + var(--t8kpi-h) + 16px);overflow-y:auto;border:1px solid var(--border);border-radius:8px}
+.gosearch .btn{position:absolute;top:0;right:0;bottom:0;height:auto;transform:none;padding:0 12px;font-size:13px;border:none;border-radius:0 8px 8px 0}
+.evscroll{height:calc(var(--t8list-h) + var(--t8kpi-h) + 16px);overflow-y:auto}
 .evtable{table-layout:fixed}
 .evtable thead th{position:sticky;top:0;background:var(--panel);z-index:2}
 .evtable td{overflow:hidden}
