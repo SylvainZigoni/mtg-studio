@@ -398,12 +398,15 @@ export function apiMarketCards(req, res) {
 /* GET /api/market/sets — vue "éditions" du Marché.
    ?from=&to= (ordinals, requis)
    -> { ok, from, to, n, sets:[{set, n, was, now, flat, pct, impact}] }
-   Coût d'une édition = somme des prix NORMAL (version classique, une valorisation par carte,
-   pas la finition foil) au jour `from` ("avant") puis au jour `to` ("après").
-   was = blobAt(normal, from) ; si aucun prix valide à from (point aberrant <= 0 ou série
-   commencée dans la fenêtre), "avant" = 1er prix valide dans [from, to] (même règle que /api/market/cards).
-   impact = somme sur les cartes de l'édition présentes dans la collection de (flat unitaire x qté),
-   quantité résolue par (set,cn) -> scryfall_id (resolveCollSfid), version normale.
+   Coût d'une édition = somme des prix NORMAL au jour `from` ("avant") puis au jour `to` ("après"),
+   UNE valorisation par impression : même dédup que /api/market/cards (LOWER(name), "set", cn,
+   anglais préféré via le CTE picked) — chaque carte n'est comptée qu'une seule fois, version
+   classique non foil (une carte imprimée en plusieurs langues n'est valorisée qu'une fois).
+   was = blobAt(normal, from) ; si aucun prix valide à from (point aberrant <= 0 ou série commencée
+   dans la fenêtre), "avant" = 1er prix valide dans [from, to] (même règle que /api/market/cards).
+   impact = somme sur les entrées de la collection de l'édition de (flat unitaire x qté), flat lu sur
+   la FINITION possédée (normal ou foil, résolue par (set,cn) -> scryfall_id via resolveCollSfid) :
+   cohérent avec le KPI "Impact sur ma collection" de la vue Cartes filtrée sur l'édition.
    pct en fraction (comme /api/market/cards). Cache 12h, invalidé par le mtime de prices.db
    ET de mtg_data.db (la collection change les impacts). */
 const marketSetsCache = new Map();
@@ -411,40 +414,59 @@ const marketSetsRunning = new Map();   // key -> Promise : évite les calculs en
 
 function computeMarketSets(from, to) {
   const c = getPricesDb();
-  // qté collection par scryfall_id, version normale (comme la valorisation du set)
-  const collMap = new Map();
-  for (const e of collectionEntries()) {
-    if ((e.qty || 1) <= 0) continue;
-    const sfid = resolveCollSfid(c, { ...e, foil: false });
-    if (!sfid) continue;
-    collMap.set(sfid, (collMap.get(sfid) || 0) + (e.qty || 1));
-  }
-  const rows = c.prepare('SELECT c.scryfall_id, c."set" AS st, s.normal FROM cards c JOIN series s ON s.uuid = c.uuid WHERE s.normal IS NOT NULL').all();
   const agg = new Map();   // st -> {set, n, was, now, impact}
+  const getA = st => { let a = agg.get(st); if (!a) { a = { set: st, n: 0, was: 0, now: 0, impact: 0 }; agg.set(st, a); } return a; };
+  // prix "avant" : blobAt(from) ; repli 1er prix valide dans [from,to] ; points aberrants <= 0 ignorés
+  const wasEffOf = blob => {
+    const was = blobAt(blob, from);
+    if (was != null && was > 0) return was;
+    const first = blobPoints(blob).find(p => p[0] >= from && p[0] <= to && p[1] > 0);
+    return first ? first[1] : null;
+  };
+  // ---- coût du set : une ligne par impression (même CTE picked que /api/market/cards), blob NORMAL
+  const rows = c.prepare(`WITH picked AS (
+      SELECT LOWER(name) AS lname, "set" AS st, cn,
+             COALESCE(MIN(CASE WHEN lang='English' THEN scryfall_id END), MIN(scryfall_id)) AS sfid
+      FROM cards GROUP BY LOWER(name), "set", cn)
+    SELECT c.scryfall_id, c."set" AS st, s.normal
+    FROM picked p JOIN cards c ON c.scryfall_id = p.sfid JOIN series s ON s.uuid = c.uuid
+    WHERE s.normal IS NOT NULL`).all();
   for (const r of rows) {
     if (!r.st) continue;
-    let was = blobAt(r.normal, from);
-    let wasEff = (was != null && was > 0) ? was : null;   // points aberrants MTGJSON (<= 0 EUR) ignorés ; les vrais prix bas (0,02-0,09 EUR) comptent
-    if (wasEff == null) {
-      const first = blobPoints(r.normal).find(p => p[0] >= from && p[0] <= to && p[1] > 0);
-      if (first) wasEff = first[1];   // série commencée dans la fenêtre : 1er prix valide connu
-    }
+    const wasEff = wasEffOf(r.normal);
     const nowP = blobAt(r.normal, to);
     if (wasEff == null || nowP == null) continue;   // pas d'évolution calculable sur la fenêtre
-    let a = agg.get(r.st);
-    if (!a) { a = { set: r.st, n: 0, was: 0, now: 0, impact: 0 }; agg.set(r.st, a); }
+    const a = getA(r.st);
     a.n++;
     a.was += wasEff;
     a.now += nowP;
-    const qty = collMap.get(r.scryfall_id) || 0;
-    if (qty > 0) a.impact += (nowP - wasEff) * qty;
   }
-  const sets = [...agg.values()].map(a => ({
-    set: a.set, n: a.n,
-    was: round2(a.was), now: round2(a.now), flat: round2(a.now - a.was),
-    pct: a.was > 0 ? (a.now - a.was) / a.was : null,
-    impact: round2(a.impact),
-  }));
+  // ---- impact collection : flat de la finition possédée (normal ou foil) x qté, par entrée
+  for (const e of collectionEntries()) {
+    if ((e.qty || 1) <= 0) continue;
+    const sc = String(e.set || '').toUpperCase();
+    if (!sc) continue;
+    const sfid = resolveCollSfid(c, e);
+    if (!sfid) continue;
+    const row = c.prepare('SELECT s.normal, s.foil FROM cards c JOIN series s ON s.uuid = c.uuid WHERE c.scryfall_id = ?').get(sfid);
+    if (!row) continue;
+    const blob = e.foil ? row.foil : row.normal;
+    if (!blob) continue;
+    const wasEff = wasEffOf(blob);
+    const nowP = blobAt(blob, to);
+    if (wasEff == null || nowP == null) continue;
+    getA(sc).impact += (nowP - wasEff) * (e.qty || 1);
+  }
+  const sets = [...agg.values()].map(a => {
+    const hasCost = a.n > 0;   // set avec au moins une impression valorisable en normal
+    return {
+      set: a.set, n: a.n,
+      was: hasCost ? round2(a.was) : null, now: hasCost ? round2(a.now) : null,
+      flat: hasCost ? round2(a.now - a.was) : null,
+      pct: hasCost && a.was > 0 ? (a.now - a.was) / a.was : null,
+      impact: round2(a.impact),
+    };
+  });
   return { ok: true, from: dayStr(from), to: dayStr(to), n: sets.length, sets };
 }
 
