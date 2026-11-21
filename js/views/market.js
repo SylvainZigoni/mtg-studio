@@ -434,7 +434,7 @@ let mkSetsData = null;   // { j, rows } : dernières données reçues (re-tri lo
 function setsTableHTML(rows){
   const th = (k, label, w) => `<th data-s="${k}" style="${w?`width:${w};`:''}cursor:pointer;user-select:none">${label}${mk.esort===k?(mk.edir==='asc'?' ▲':' ▼'):''}</th>`;
   return `<table id="mk-table"><thead><tr>
-    <th style="width:60px"></th>${th('name','Extension')}${th('date','Date',100)}<th style="width:190px;cursor:default">Coût du set (avant → après)</th>${th('flat','Évol. €',90)}${th('pct','Évol. %',90)}${th('impact','Impact coll.',110)}
+    <th style="width:6%"></th>${th('name','Extension','38%')}${th('date','Date','8%')}<th style="width:20%;cursor:default">Coût du set (avant → après)</th>${th('flat','Évol. €','10%')}${th('pct','Évol. %','6%')}${th('impact','Impact coll.','12%')}
   </tr></thead><tbody>
   ${rows.map(r => `<tr data-s="${esc(r.code)}" style="cursor:pointer" title="Voir le détail de cette extension">
     <td>${r.icon?`<img class="seticon" src="${r.icon}" style="width:24px;height:24px" alt="">`:'◈'}</td>
