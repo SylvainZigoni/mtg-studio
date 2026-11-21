@@ -118,7 +118,7 @@ async function showCardInfo(name, _box, ctx){
     <div class="cp-top">
       <div class="cp-left">
         <div class="cp-imgwrap">
-          <img id="cp-img" src="${cur.image||''}" data-zoom="${cur.image_lg || cur.image || ''}" alt="${esc(cur.name)}">
+          <img id="cp-img" src="${cur.image||''}" alt="${esc(cur.name)}">
           <span class="qtyb cp-qset" title="${qSet} de cette édition dans la collection">×${qSet}</span>
           <span class="qtyb cp-qall" title="${qAll} toutes éditions confondues dans la collection">×${qAll}</span>
         </div>
@@ -127,10 +127,9 @@ async function showCardInfo(name, _box, ctx){
         </select>
       </div>
       <div class="cp-right">
-        <h2 style="margin-bottom:2px">${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h2>
-        <p class="hint">${esc(cur.type_line||'')}${cur.mv!=null?` · mv ${cur.mv}`:''}</p>
+        <h2 style="margin-bottom:2px">${R.rarityDotHTML ? R.rarityDotHTML(cur.rarity) : ''}${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h2>
         <p class="hint">Édition : <b>${esc(cur.set_name||'')}</b> <span class="pill">${esc((cur.set||'').toUpperCase())}</span>${cur.released_at?` <span class="pill">sortie : ${frDate(cur.released_at)}</span>`:''}${cur.cn!=null?` <span class="pill">n° ${esc(String(cur.cn))}</span>`:''}</p>
-        <p style="margin:6px 0"><b>Prix :</b> <span class="price" style="color:var(--warn);font-weight:700">${cpN!=null?eur(cpN):'—'}</span>${cpF!=null?` · foil <b style="color:var(--warn)">${eur(cpF)}</b>`:` · <span class="hint">pas de prix foil</span>`} <span class="pill">Cardmarket via prices.db${lastPoint()?` au ${lastPoint()}`:''}</span></p>
+        <p style="margin:6px 0"><b>Prix :</b> <span class="price" style="color:var(--warn);font-weight:700">${cpN!=null?eur(cpN):'—'}</span>${cpF!=null?` · foil <b style="color:var(--warn)">${eur(cpF)}</b>`:` · <span class="hint">pas de prix foil</span>`} <span class="pill">Cardmarket via prices.db${lastPoint()?` au ${frDate(lastPoint())}`:''}</span></p>
         <p class="hint">Langues dispo : <span class="pillrow" style="display:inline-flex">${langList.map(l=>`<span class="pill infopill" title="${esc(LANGS[l]||l)}">${esc(l.toUpperCase())}</span>`).join('')}</span></p>
         <div class="hint">Dans collection (${esc((cur.set||'').toUpperCase())}) : ${mine.length ? mine.map(e=>`<div class="pillrow"><b>${e.qty}×</b><span class="pill infopill" title="Langue : ${esc(LANGS[e.lang]||e.lang||'Anglais')}">${esc((e.lang||'en').toUpperCase())}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${esc(COND_LABEL[e.cond]||e.cond||'NM')}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}</div>`).join('') : '—'}</div>
         <div class="cp-add">
@@ -223,7 +222,8 @@ async function showCardInfo(name, _box, ctx){
     try{
 
       const j = await sfSearch(similarQuery(cur), st.simPage);
-      const sims = (j.data||[]).filter(x => norm(x.name)!==norm(name));
+      if(!append || !st.simSeen) st.simSeen = new Set();
+      const sims = (j.data||[]).filter(x => { const k = norm(x.name); if(k===norm(name) || st.simSeen.has(k)) return false; st.simSeen.add(k); return true; });
       if(!append){
 
         const why = similarityLabels(cur);
@@ -233,11 +233,10 @@ async function showCardInfo(name, _box, ctx){
       sims.slice(0,10).forEach(x => {
 
         const img = x.image_uris?.normal || x.card_faces?.[0]?.image_uris?.normal || '';
-        const lg = x.image_uris?.large || img;
         const d = document.createElement('div');
         d.className = 'cardtile'; d.style.width='110px'; d.style.cursor='pointer';
         d.dataset.sn = x.name; d.dataset.set = x.set || '';
-        d.innerHTML = `<img src="${img}" loading="lazy" data-zoom="${lg}" style="width:100%;aspect-ratio:488/680;object-fit:cover"><div class="info" style="font-size:11px">${esc(x.name)}</div>`;
+        d.innerHTML = `<img src="${img}" loading="lazy" style="width:100%;aspect-ratio:488/680;object-fit:cover"><div class="info" style="font-size:11px">${esc(x.name)}</div>`;
         d.onclick = () => showCardInfo(d.dataset.sn, undefined, d.dataset.set ? {set: d.dataset.set} : null);
         grid.appendChild(d);
       });

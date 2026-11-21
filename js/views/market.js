@@ -721,6 +721,6 @@ async function loadPriceChart(c, modal){
   drawPriceChart(box.querySelector('#pricecv'), series);
 }
 
-R.views.market = vMarket; R.loadPriceChart = loadPriceChart; R.drawPriceChart = drawPriceChart; R.drawSpark = drawSpark;
+R.views.market = vMarket; R.loadPriceChart = loadPriceChart; R.drawPriceChart = drawPriceChart; R.drawSpark = drawSpark; R.rarityDotHTML = rarityDotHTML;
 
 export { vMarket, drawPriceChart, loadPriceChart };
