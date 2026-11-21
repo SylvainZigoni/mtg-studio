@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getPricesDb, pricesAvailable, blobPoints, blobAt, dayStr, todayOrdinal } from '../utils/pricesDb.js';
 import { loadState } from './stateController.js';
+import { dataMtimeMs } from '../utils/db.js';
 import { sendJson } from '../utils/http.js';
 import { ROOT, PRICES_DB, DB_PATH } from '../utils/paths.js';
 
@@ -137,7 +138,7 @@ export function apiMarket(req, res) {
    -> { ok, from, to, total, page, pages, kpi, hist, index:[[date,val]], rows:[{...,spark,img,img_lg}] }
    Une ligne par FINITION ayant un blob de prix (normal et/ou foil ; les 2 -> 2 lignes,
    une seule -> 1 ligne, aucune série -> 1 ligne sans prix, triée en dernier).
-   Cache 12h par requête, invalidé par le mtime de prices.db ET de mtg_data.db (collection). */
+   Cache 12h par requête, invalidé par le mtime de prices.db ET de mtg_data.db (+ -wal/-shm, mode WAL). */
 const marketCardsCache = new Map();
 const marketRunning = new Map();   // key -> Promise<result> : évite les calculs en double
 const marketStatus = { running: false, phase: '', page: 0, cards: 0, since: 0 };
@@ -377,7 +378,7 @@ export function apiMarketCards(req, res) {
   if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
   if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
   // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
-  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + fs.statSync(DB_PATH).mtimeMs;
+  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + dataMtimeMs();   // mtg_data.db + -wal/-shm (mode WAL : le .db principal ne bouge pas)
   const key = mtime + '|' + JSON.stringify({ ...q, from, to });
   const nowS = Date.now() / 1000;
   const hit = marketCardsCache.get(key);
@@ -408,7 +409,7 @@ export function apiMarketCards(req, res) {
    la FINITION possédée (normal ou foil, résolue par (set,cn) -> scryfall_id via resolveCollSfid) :
    cohérent avec le KPI "Impact sur ma collection" de la vue Cartes filtrée sur l'édition.
    pct en fraction (comme /api/market/cards). Cache 12h, invalidé par le mtime de prices.db
-   ET de mtg_data.db (la collection change les impacts). */
+   ET de mtg_data.db + -wal/-shm (mode WAL ; la collection change les impacts). */
 const marketSetsCache = new Map();
 const marketSetsRunning = new Map();   // key -> Promise : évite les calculs en double
 
@@ -484,7 +485,7 @@ export function apiMarketSets(req, res) {
   if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
   if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
   // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
-  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + fs.statSync(DB_PATH).mtimeMs;
+  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + dataMtimeMs();   // mtg_data.db + -wal/-shm (mode WAL : le .db principal ne bouge pas)
   const key = mtime + '|' + from + '|' + to;
   const nowS = Date.now() / 1000;
   const hit = marketSetsCache.get(key);
