@@ -301,3 +301,6 @@ input[type=range]{accent-color:var(--accent)}
 
 /* boule de rareté de la popup fiche carte : 1em = taille exacte du texte du h2 */
 .cp-right h2 .rarity-dot{width:.8em;height:.8em;vertical-align:-.1em;margin-right:8px;border-width:2px}
+
+/* petit drapeau de langue (pills) */
+.langflag{width:18px;height:12px;border-radius:2px;object-fit:cover;border:1px solid var(--border);vertical-align:-1px}

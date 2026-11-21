@@ -1,4 +1,4 @@
-import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
+import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST, langFlagHTML } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, setEntries, setTags, setMatches, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
@@ -214,7 +214,7 @@ function collTableHTML(list){
     return `<tr class="entryrow" data-id="${e.id}">
       <td><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></td>
       <td>${p?.image ? `<img class="collthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" alt="">` : '<span class="hint">…</span>'}</td>
-      <td><div class="cellname">${rdot}<span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span></div><div class="pillrow"><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge" title="Reserved List">RL</span>':''}</div></td>
+      <td><div class="cellname">${rdot}<span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span></div><div class="pillrow"><span class="pill infopill">${langFlagHTML(e.lang)}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge" title="Reserved List">RL</span>':''}</div></td>
       <td class="hint">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> <span class="pill">${p.released_at?.slice(0,4)||''}</span>` : '…'}</td>
       <td><div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div></td>
       <td class="p">${pr!=null?eur(pr):'…'}</td>
@@ -238,7 +238,7 @@ function collGridHTML(list){
       <div class="info">
         <div class="name cinfo" title="${esc(e.name)}" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${rdot}${esc(e.name)}</div>
         <div class="setline">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> ${p.released_at?.slice(0,4)||''}` : '…'}</div>
-        <div class="pillrow"><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
+        <div class="pillrow"><span class="pill infopill">${langFlagHTML(e.lang)}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
         <div class="pricerow">${pr!=null?`PU : <b>${eur(pr)}</b>`:'…'}</div>
         <div class="pricerow">${pr!=null?`∑ : <b>${eur(pr*e.qty)}</b>`:'…'}</div>
         <div class="tilerow">
