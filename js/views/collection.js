@@ -1,4 +1,4 @@
-import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST } from '../core/util.js';
+import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST, langFlagHTML } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, setEntries, setTags, setMatches, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
@@ -7,13 +7,6 @@ import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, func
 import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
 import { R, S } from '../core/registry.js';
 import { dbPrices, dbFoil } from '../core/pricedb.js';
-
-/* prix affiché (popup d'ajout) = prices.db via le scryfall_id du print */
-function apPriceTxt(p){
-  const pp = p && p.id ? dbPrices(p.id) : null;
-  const n = pp ? (pp[0] ?? pp[1]) : null, f = pp ? pp[1] : null;
-  return (n != null ? eur(n) : '—') + (f != null ? ` / ✦ ${eur(f)}` : '');
-}
 
 /* ============================================================
    VUE COLLECTION
@@ -221,7 +214,7 @@ function collTableHTML(list){
     return `<tr class="entryrow" data-id="${e.id}">
       <td><input type="checkbox" class="rowchk" ${collChecked.has(e.id)?'checked':''}></td>
       <td>${p?.image ? `<img class="collthumb cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}" src="${p.image}" data-zoom="${p.image_lg || p.image}" alt="">` : '<span class="hint">…</span>'}</td>
-      <td><div class="cellname">${rdot}<span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span></div><div class="pillrow"><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge" title="Reserved List">RL</span>':''}</div></td>
+      <td><div class="cellname">${rdot}<span class="link cinfo" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${esc(e.name)}</span></div><div class="pillrow">${langFlagHTML(e.lang)}<span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge" title="Reserved List">RL</span>':''}</div></td>
       <td class="hint">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> <span class="pill">${p.released_at?.slice(0,4)||''}</span>` : '…'}</td>
       <td><div class="qty-ctl"><button data-a="dec">−</button><b>${e.qty}</b><button data-a="inc">+</button></div></td>
       <td class="p">${pr!=null?eur(pr):'…'}</td>
@@ -245,7 +238,7 @@ function collGridHTML(list){
       <div class="info">
         <div class="name cinfo" title="${esc(e.name)}" data-name="${esc(e.name)}" data-set="${esc(e.set||'')}" data-cn="${esc(e.cn??'')}">${rdot}${esc(e.name)}</div>
         <div class="setline">${p ? `${esc(p.set_name||'')} <b>(${p.set?.toUpperCase()})</b> ${p.released_at?.slice(0,4)||''}` : '…'}</div>
-        <div class="pillrow"><span class="pill infopill" title="Langue : ${LANGS[e.lang]||e.lang||'Anglais'}">${(e.lang||'en').toUpperCase()}</span><span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
+        <div class="pillrow">${langFlagHTML(e.lang)}<span class="pill infopill cond-${e.cond||'NM'}" title="État : ${COND_LABEL[e.cond]||e.cond||'NM'}">${e.cond||'NM'}</span>${e.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}${e.signed?'<span class="pill infopill icpill" title="Signée"><i class="ic ic-signed"></i></span>':''}${p?.reserved?'<span class="rl-badge">RL</span>':''}</div>
         <div class="pricerow">${pr!=null?`PU : <b>${eur(pr)}</b>`:'…'}</div>
         <div class="pricerow">${pr!=null?`∑ : <b>${eur(pr*e.qty)}</b>`:'…'}</div>
         <div class="tilerow">
@@ -641,83 +634,6 @@ async function openBulkEditor(sel){
   };
 }
 
-/* popup d'ajout rapide depuis une tuile (recherche avancée / détail d'extension) :
-   l'édition est fixée à l'impression cliquée — pas de grille de choix d'édition */
-async function openAddPopup(name, preset){
-  preset = preset || {};
-  let prints = [];
-  try{ prints = await sfPrints(name); }catch(e){}
-  if(!prints.length){ addEntry({name, qty:1, tags:[]}); return; }
-  // printings de CETTE édition, toutes langues (requête set:<code> !"nom" — source fiable)
-  let pool = prints;
-  if(preset.set){
-    try{ const sp = await sfSetPrints(name, preset.set); if(sp.length) pool = sp; }catch(e){}
-  }
-  let cur = (preset.set && pool.find(x => x.set===preset.set && (!preset.cn || String(x.cn)===String(preset.cn))))
-         || (preset.set && pool.find(x => x.set===preset.set)) || pool[0] || prints[0];
-  // langues disponibles pour cette carte DANS cette édition (champ lang des printings Scryfall)
-  let langList = [...new Set(pool.filter(x => x.set===cur.set).map(x => x.lang).filter(Boolean))];
-  if(!langList.length) langList = [...new Set(pool.map(x => x.lang).filter(Boolean))];
-  if(!langList.length) langList = [...new Set(prints.map(x => x.lang).filter(Boolean))];
-  if(!langList.length) langList.push('en');
-  let langVal = langList.includes('en') ? 'en' : (cur.lang || langList[0]);   // anglais par défaut si dispo
-  const foilOk = p => (p.finishes||[]).includes('foil') || dbFoil(p && p.id) != null;        // imprimée en foil ou non (prix foil dans prices.db)
-  openModal(`
-  <button class="close" id="mclose">✕</button>
-  <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
-    <img id="apimg" src="${cur.image||''}" style="width:150px;border-radius:10px;background:#000" alt="">
-    <div style="flex:1;min-width:260px">
-      <h3 style="margin-bottom:2px">${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h3>
-      <p class="hint" id="apsetline">Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span></p>
-      <p id="apprice" style="color:var(--warn);font-weight:700;margin:4px 0">${apPriceTxt(cur)}</p>
-      <div class="row" style="flex-wrap:wrap;gap:10px">
-        <label class="row" style="gap:6px"><b>Langue :</b>
-          <select id="aplang" title="Langues disponibles pour cette carte dans cette édition">
-            ${langList.map(lg => `<option value="${lg}" ${lg===langVal?'selected':''}>${LANGS[lg]||lg}</option>`).join('')}
-          </select></label>
-        <label class="row" style="gap:6px"><b>État :</b>
-          <select id="apcond">${CONDS.map(([v,l]) => `<option value="${v}" ${v==='NM'?'selected':''}>${v} — ${l}</option>`).join('')}</select></label>
-        <label class="row" id="apfoilwrap" style="gap:6px" title="${foilOk(cur)?'Cette impression existe en foil':'Cette impression n\'existe pas en foil'}"><input type="checkbox" id="apfoil" ${foilOk(cur)?'':'disabled'}> Foil</label>
-        <label class="row" style="gap:6px"><input type="checkbox" id="apsigned"> Signée</label>
-        <label class="row" style="gap:6px"><b>Qté :</b> <input type="number" id="apqty" value="1" min="1" max="99" style="width:70px"></label>
-      </div>
-      <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">
-        <select id="aptags" multiple size="${Math.min(6, Math.max(3, tags.length))}" style="min-width:180px">
-          ${tags.map(t=>`<option>${esc(t)}</option>`).join('')}
-        </select>
-        <button class="btn ghost" id="apnewtag">+ tag</button>
-        <button class="btn" id="apok">Ajouter à la collection</button>
-      </div>
-    </div>
-  </div>`);
-  $('#mclose').onclick = closeModal;
-  // changer de langue = changer de printing dans la même édition (visuel, n°, prix, foil mis à jour)
-  $('#aplang').onchange = e => {
-    langVal = e.target.value;
-    const alt = pool.find(x => x.set===cur.set && x.lang===langVal);
-    if(alt && alt !== cur){
-      cur = alt;
-      $('#apimg').src = cur.image || '';
-      $('#apsetline').innerHTML = `Édition : <b>${esc(cur.set_name)}</b> <span class="pill">${cur.set.toUpperCase()} · n° ${esc(String(cur.cn))} · ${cur.released_at?.slice(0,4)||''}</span> <span class="pill" id="aplangpill">${(cur.lang||'en').toUpperCase()}</span>`;
-      $('#apprice').textContent = `${apPriceTxt(cur)}`;
-      const ok = foilOk(cur), cb = $('#apfoil');
-      cb.disabled = !ok; if(!ok) cb.checked = false;
-      $('#apfoilwrap').style.opacity = ok ? 1 : .45;
-      $('#apfoilwrap').title = ok ? 'Cette impression existe en foil' : 'Cette impression n\'existe pas en foil';
-    }
-  };
-  $('#apnewtag').onclick = () => { const n = prompt('Nom du tag ?');
-    if(n){ setTags([...new Set([...tags, n])]); saveTags();
-      $('#aptags').innerHTML += `<option selected>${esc(n)}</option>`; } };
-  $('#apok').onclick = () => {
-    const chosen = [...$('#aptags').selectedOptions].map(o=>o.value);
-    const foil = !$('#apfoil').disabled && $('#apfoil').checked;
-    addEntry({name:cur.name, set:cur.set, cn:cur.cn, foil, signed:$('#apsigned').checked,
-      qty:+$('#apqty').value||1, cond:$('#apcond').value, lang:langVal, tags:chosen});
-    closeModal();
-    refreshTileOwned(cur.name, cur.set);   // met à jour le badge ×N sans relancer la recherche
-  };
-}
 /* met à jour le badge ×N des tuiles d'une carte+édition (toutes langues/états confondus) */
 function refreshTileOwned(name, set){
   const s = set || '';
@@ -731,6 +647,6 @@ function refreshTileOwned(name, set){
   });
 }
 R.views.collection = vCollection; R.vCollection = vCollection;
-R.openAddPopup = openAddPopup; R.openEntryEditor = openEntryEditor;
+R.openEntryEditor = openEntryEditor; R.refreshTileOwned = refreshTileOwned;
 
-export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, openBulkEditor, promptTagsFor, openAddPopup, refreshTileOwned, collF, collSort, setCollSort, TYPES_LIST };
+export { collFilterAndSort, vCollection, collTableHTML, collGridHTML, hydrateColl, bindCollection, openEntryEditor, openBulkEditor, promptTagsFor, refreshTileOwned, collF, collSort, setCollSort, TYPES_LIST };

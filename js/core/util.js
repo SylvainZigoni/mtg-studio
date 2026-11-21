@@ -23,4 +23,10 @@ const frDate = iso => {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso ? String(iso) : '—');
 };
 
-export { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST, frDate };
+/* petit drapeau d'une langue (SVG /assets/icons/flags/<code>.svg) ; alt = code si image absente */
+const langFlagHTML = code => {
+  const c = String(code || 'en').toLowerCase();
+  return `<img class="langflag" src="/assets/icons/flags/${c}.svg" alt="${esc(c.toUpperCase())}" title="${esc(LANGS[c] || c)}">`;
+};
+
+export { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TYPES_LIST, frDate, langFlagHTML };

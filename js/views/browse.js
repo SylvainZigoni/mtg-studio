@@ -533,7 +533,7 @@ function cardTileHTML(c, cardLangs, ownMap){
   const q = (ownMap || ownedQtyMap()).get(k+'|'+(c.set||'')) || 0;
   const price = dbPrice(c.id, false);   // prix affiché = prices.db (scryfall_id)
   const langs = [...(cardLangs[c.set+'|'+k] || [c.lang])].map(l=>(l||'en').toUpperCase()).join('/');
-  return `<div class="cardtile" data-name="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}" style="cursor:pointer" title="Cliquez pour ajouter à la collection (langue, état…)">
+  return `<div class="cardtile" data-name="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}" style="cursor:pointer" title="Cliquez pour ouvrir la fiche carte (édition, prix, collection…)">
     ${q?`<span class="qtyb">×${q}</span>`:''}
     <img src="${img}" loading="lazy" alt="${esc(c.name)}" data-zoom="${c.image_uris?.large || img}">
     <div class="info">
@@ -547,9 +547,9 @@ function renderCardGrid(box, cards){
   const cardLangs = cardLangsOf(cards);
   const ownMap = ownedQtyMap();
   box.innerHTML = `<div class="cardgrid">${cards.map(c => cardTileHTML(c, cardLangs, ownMap)).join('')}</div>`;
-  // clic sur une carte -> popup d'ajout pour CETTE impression (édition fixée, langue selon l'édition, état)
+  // clic sur une carte -> popup fiche unique pour CETTE impression (édition fixée)
   box.querySelectorAll('.cardtile').forEach(tl => tl.onclick = () =>
-    R.openAddPopup(tl.dataset.name, {set: tl.dataset.set, cn: tl.dataset.cn}));
+    R.showCardInfo(tl.dataset.name, undefined, {set: tl.dataset.set, cn: tl.dataset.cn}));
 }
 const wrapSets = a => { browseMode='sets'; browseSet=null; vBrowse(a); };
 const wrapSearch = a => { browseMode='search'; browseSet=null; browsePage=1; vBrowse(a); };
