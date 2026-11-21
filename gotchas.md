@@ -12,6 +12,8 @@
 - Un `<canvas>` ne résout pas `var(--…)` dans `strokeStyle`/`fillStyle` (affectation ignorée, couleur parasite héritée) : résoudre la couleur via `getComputedStyle(document.documentElement).getPropertyValue('--accent')`.
 - Image d'une carte depuis son `scryfall_id` : `https://cards.scryfall.io/<size>/front/<c1>/<c2>/<uuid>.jpg` avec **1 seul caractère par dossier** (`cards.image` est NULL pour certaines lignes).
 - Tout cache serveur est invalidé par le **mtime de tous les fichiers lus** : marché = `prices.db` **et** `mtg_data.db` (la collection change les quantités) ; decks = `mtgtop8.sqlite`.
+- **Piège WAL** : `mtg_data.db` est en mode WAL — les écritures partent dans `mtg_data.db-wal` et le mtime du `.db` principal ne bouge pas. Pour invalider un cache sur la collection, prendre le max des mtime de `.db` + `-wal` + `-shm` (`dataMtimeMs()` dans `server/utils/db.js`, utilisé par `/api/market/cards` et `/api/market/sets`) ; sinon le cache 12 h ressert les anciens résultats même après un ajout de carte.
+- Dans un template literal HTML (js/views), `// ...` n'est PAS un commentaire JS : c'est du texte rendu dans le DOM — ne jamais en placer entre des balises.
 - MTGJSON publie avec 1 jour de décalage ; `reserved` n'existe plus dans AllPrintings v5 (seed via Scryfall `is:reserved`) ; **papier uniquement** : `availability` contient `"paper"` (set : `isOnlineOnly` dans SetList/{SET}.json), côté Scryfall `digital=false` / `game:paper`.
 - Point de prix « aberrant » = `<= 0 €` uniquement ; les vrais prix bas (0,02–0,09 €) doivent calculer une évolution (flat, %).
 - `index.html` et `js/` doivent rester cohérents (js récent + index ancien = boot bloqué avant tout fetch ; guard dans `js/main.js`).

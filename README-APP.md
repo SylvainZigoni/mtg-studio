@@ -74,6 +74,7 @@ du navigateur et le badge affiche « ⚠ hors serveur ».
 ## En cours (phase 2) — désormais livré
 - Page **Marché** : top/flop des évolutions de prix (1 semaine, 1 mois, 1 an,
   3/5/10 ans, depuis la sortie), toutes cartes ou restreint à votre collection.
+- Page **Marché**, onglet **Éditions** : évolution du coût de chaque extension sur la période choisie (2 curseurs sur la timeline) — coût avant → après (normal + foil, 1 valorisation par impression), évol. € / %, impact sur votre collection ; tableau triable (nom, date, coût après, évolutions, impact) ; un clic sur une ligne ouvre la vue Cartes filtrée sur cette extension.
 - **Statistiques de collection** : vue d'ensemble, histogramme par année,
   top extensions, cartes les plus possédées, valorisation actuelle et passée,
   taux de possession des cartes les plus jouées par format (filtre de dates).
