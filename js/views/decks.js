@@ -27,7 +27,7 @@ import { R, S } from '../core/registry.js';
      -> ordre alphabétique du nom du deck ; clic ligne -> showDeck
    ============================================================ */
 const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
-const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Nombre de joueurs']];
+const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Joueurs']];
 const T8_COLW = [12, 6, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
 let t8 = { fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', open:new Set(), _rt:null };
@@ -204,6 +204,7 @@ function renderT8Results(app){
       `<tr class="evdetail" data-eid="${e.eid}"${open?'':' style="display:none"'}><td colspan="6">${open ? t8deckSubHTML(e) : ''}</td></tr>`;
   }).join('');
   box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_COLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_COLS.map(([c]) => th(c)).join('')}<th class="c-chev"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
+  document.documentElement.style.setProperty('--t8kpi-h', (kpi.offsetHeight || 104) + 'px');
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
