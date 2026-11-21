@@ -45,36 +45,6 @@ function vCardSearch(app){
   };
 }
 
-/* sparkline compacte 2 courbes (normal/foil) — couleurs en dur : un canvas ne résout pas var(--…) */
-function drawSpark(cv, series){
-
-  const all = (series||[]).filter(s => s.pts.length);
-  if(!all.length){ cv.parentElement.innerHTML = '<p class="hint">Aucun historique de prix pour cette impression (prices.db).</p>'; return; }
-  const dpr = window.devicePixelRatio||1;
-  const w = cv.clientWidth || 600, h = 90;
-  cv.width = w*dpr; cv.height = h*dpr;
-  cv.style.height = h+'px';
-  const ctx = cv.getContext('2d');
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  const pts = all.flatMap(s => s.pts);
-  const t0 = Math.min(...pts.map(p=>p[0])), t1 = Math.max(...pts.map(p=>p[0]));
-  const v0 = Math.min(...pts.map(p=>p[1])), v1 = Math.max(...pts.map(p=>p[1]));
-  const spanT = Math.max(1, t1-t0), spanV = Math.max(1e-9, v1-v0);
-  const X = t => 6 + (w-12) * (t-t0) / spanT;
-  const Y = v => h-18 - (h-28) * (v-v0) / spanV;
-  ctx.strokeStyle = 'rgba(255,255,255,.12)';
-  for(let g=0; g<=3; g++){ const y = 6 + (h-28)*g/3; ctx.beginPath(); ctx.moveTo(6,y); ctx.lineTo(w-6,y); ctx.stroke(); }
-  for(const s of all){
-    ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.beginPath();
-    s.pts.forEach((p,i) => { const x=X(p[0]), y=Y(p[1]); i ? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
-    ctx.stroke();
-  }
-  ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
-  let ly = 14;
-  for(const s of all){ ctx.fillStyle = s.color; ctx.fillText(s.label, w-8, ly); ly += 14; }
-  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.textAlign = 'left'; ctx.font = '10px sans-serif';
-  ctx.fillText(new Date(t0).toISOString().slice(0,10) + ' → ' + new Date(t1).toISOString().slice(0,10), 6, h-5);
-}
 async function loadSpark(c){
 
   const box = document.querySelector('#cp-sparkbox'); if(!box) return;
@@ -83,10 +53,12 @@ async function loadSpark(c){
   try{ j = await (await fetch('/api/price?sfid='+encodeURIComponent(c.id))).json(); }catch(e){}
   if(!j || !j.ok){ box.innerHTML = `<p class="hint">⚠ ${esc((j&&j.error)||'prices.db absent : exécutez price_seed.py pour activer le marché.')}</p>`; return; }
   const series = [];
-  if(j.normal && j.normal.length) series.push({label:'Normal', color:'#5b8cff', pts:j.normal.map(p => [new Date(p[0]).getTime(), p[1]])});
-  if(j.foil && j.foil.length) series.push({label:'Foil', color:'#e0b84d', pts:j.foil.map(p => [new Date(p[0]).getTime(), p[1]])});
-  box.innerHTML = '<canvas id="cp-sparkcv" style="width:100%"></canvas>';
-  drawSpark(box.querySelector('#cp-sparkcv'), series);
+  if(j.normal && j.normal.length) series.push({label:'Normal', pts:j.normal});   // [["YYYY-MM-DD", prix], …]
+  if(j.foil && j.foil.length) series.push({label:'Foil', color:'#e0b84d', pts:j.foil});
+  if(!series.length){ box.innerHTML = '<p class="hint">Aucun historique de prix pour cette impression (prices.db).</p>'; return; }
+  box.innerHTML = '<canvas id="cp-sparkcv" class="spark" style="width:100%"></canvas>';
+  const cv = box.querySelector('#cp-sparkcv');
+  if(R.drawSpark) R.drawSpark(cv, null, {W: cv.clientWidth || 600, H: 90, series});   // même modèle que l'onglet Marché
 }
 
 /* popup unique fiche + ajout. ctx = {set, cn} : édition cliquée (sinon 1re impression).
@@ -129,9 +101,7 @@ async function showCardInfo(name, _box, ctx){
     if(!langList.length) langList = ['en'];
     /* langue conservée si dispo dans cette édition, sinon EN, sinon la 1re */
     st.form.lang = langList.includes(st.form.lang) ? st.form.lang : (langList.includes('en') ? 'en' : langList[0]);
-    /* changer de langue = changer de printing dans la même édition (visuel, n°, prix) */
-    const alt = pool.find(x => x.set===cur.set && x.lang===st.form.lang);
-    if(alt) cur = alt;
+    /* la langue choisie ne change PAS l'affichage : elle ne sert que pour l'ajout (st.form.lang) */
 
     const k = norm(name);
     let cp = cur.id ? dbPrices(cur.id) : null;   // prix prices.db du print affiché (jamais Scryfall)
@@ -149,8 +119,8 @@ async function showCardInfo(name, _box, ctx){
       <div class="cp-left">
         <div class="cp-imgwrap">
           <img id="cp-img" src="${cur.image||''}" data-zoom="${cur.image_lg || cur.image || ''}" alt="${esc(cur.name)}">
-          <span class="qtyb cp-qset" title="Quantité possédée dans cette édition (foil + non foil confondues)">×${qSet}</span>
-          <span class="qtyb cp-qall" title="Quantité possédée au total, toutes éditions (foil + non foil)">×${qAll}</span>
+          <span class="qtyb cp-qset" title="${qSet} de cette édition dans la collection">×${qSet}</span>
+          <span class="qtyb cp-qall" title="${qAll} toutes éditions confondues dans la collection">×${qAll}</span>
         </div>
         <select id="cp-set" class="cp-set" title="Toutes les éditions où cette carte a été imprimée">
           ${prints.map(p => `<option value="${esc(p.set)}" ${p.set===cur.set?'selected':''}>${esc(p.set_name||p.set)} — ${esc((p.set||'').toUpperCase())}${p.released_at?' · '+esc(p.released_at):''}</option>`).join('')}
@@ -158,7 +128,7 @@ async function showCardInfo(name, _box, ctx){
       </div>
       <div class="cp-right">
         <h2 style="margin-bottom:2px">${esc(cur.name)}${cur.printed_name && cur.printed_name!==cur.name?` <span class="hint">(${esc(cur.printed_name)})</span>`:''}</h2>
-        <p class="hint">${esc(cur.type_line||'')}${cur.mv!=null?` · mv ${cur.mv}`:''} · <b>${esc(LANGS[cur.lang]||cur.lang||'Anglais')} (${esc((cur.lang||'en').toUpperCase())})</b></p>
+        <p class="hint">${esc(cur.type_line||'')}${cur.mv!=null?` · mv ${cur.mv}`:''}</p>
         <p class="hint">Édition : <b>${esc(cur.set_name||'')}</b> <span class="pill">${esc((cur.set||'').toUpperCase())}</span>${cur.released_at?` <span class="pill">sortie : ${frDate(cur.released_at)}</span>`:''}${cur.cn!=null?` <span class="pill">n° ${esc(String(cur.cn))}</span>`:''}</p>
         <p style="margin:6px 0"><b>Prix :</b> <span class="price" style="color:var(--warn);font-weight:700">${cpN!=null?eur(cpN):'—'}</span>${cpF!=null?` · foil <b style="color:var(--warn)">${eur(cpF)}</b>`:` · <span class="hint">pas de prix foil</span>`} <span class="pill">Cardmarket via prices.db${lastPoint()?` au ${lastPoint()}`:''}</span></p>
         <p class="hint">Langues dispo : <span class="pillrow" style="display:inline-flex">${langList.map(l=>`<span class="pill infopill" title="${esc(LANGS[l]||l)}">${esc(l.toUpperCase())}</span>`).join('')}</span></p>
@@ -215,7 +185,7 @@ async function showCardInfo(name, _box, ctx){
       const p = prints.find(x => x.set === e.target.value);
       if(p){ cur = p; await render(); }
     };
-    $('#cp-lang').onchange = e => { st.form.lang = e.target.value; render(); };
+    $('#cp-lang').onchange = e => { st.form.lang = e.target.value; };
     $('#cp-cond').onchange = e => { st.form.cond = e.target.value; };
     $('#cp-foil').onchange = e => { st.form.foil = e.target.checked; };
     $('#cp-signed').onchange = e => { st.form.signed = e.target.checked; };
@@ -235,7 +205,7 @@ async function showCardInfo(name, _box, ctx){
       closeModal();
       if(R.refreshTileOwned) R.refreshTileOwned(cur.name, cur.set);   // badge ×N des tuiles sans relancer la recherche
     };
-    $('#newtag').onkeydown = e => {
+    $('#modal #newtag').onkeydown = e => {
 
       if(e.key==='Enter' && e.target.value.trim()){ addCustomTag(name, e.target.value.trim()); render(); }
     };

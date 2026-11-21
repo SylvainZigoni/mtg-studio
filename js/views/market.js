@@ -245,40 +245,66 @@ function drawTotal(cv, pts){
 }
 
 /* sparkline d'une ligne : pts = [[iso, prix]] ; survol -> date + prix */
-function drawSpark(cv, pts){
-  const W = 110, H = 30;
+function drawSpark(cv, pts, opts){
+  opts = opts || {};
+  const series = opts.series || [{pts:pts, color:null, label:''}];   // defaut : 1 courbe, meme rendu qu'avant
+  const W = opts.W || 110, H = opts.H || 30;
   const dpr = window.devicePixelRatio || 1;
   const accent = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '').trim() || '#5b8cff';
-  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.width = opts.W ? '100%' : W + 'px'; cv.style.height = H + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const allPts = series.flatMap(s => s.pts || []);
+  const maxLen = Math.max(1, ...series.map(s => (s.pts || []).length));
   const paint = (hov, mx, my) => {
     ctx.clearRect(0, 0, W, H);
-    if(!pts.length) return;
-    const vals = pts.map(p => p[1]);
+    if(!allPts.length) return;
+    const vals = allPts.map(p => p[1]);
     const lo = Math.min(...vals), hi = Math.max(...vals);
     const span = Math.max(1e-9, hi - lo);
-    const X = i => 2 + (W - 4) * i / (pts.length - 1 || 1);
+    const X = i => 2 + (W - 4) * i / (maxLen - 1 || 1);
     const Y = v => H - 4 - (H - 8) * (v - lo) / span;
-    ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.beginPath();
-    pts.forEach((p, i) => { const x = X(i), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
+    for(const s of series){
+      if(!s.pts || !s.pts.length) continue;
+      ctx.strokeStyle = s.color || accent; ctx.lineWidth = 1.5; ctx.beginPath();
+      s.pts.forEach((p, i) => { const x = X(i), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+    }
+    if(series.some(s => s.label)){   // légende en haut à gauche si des labels sont fournis
+      ctx.font = '10px sans-serif'; let lx = 4; ctx.textAlign = 'left';
+      for(const s of series){
+        if(!s.label || !s.pts || !s.pts.length) continue;
+        ctx.fillStyle = s.color || accent; ctx.fillRect(lx, 3, 8, 3);
+        ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fillText(s.label, lx + 12, 9);
+        lx += 12 + ctx.measureText(s.label).width + 10;
+      }
+    }
     if(hov != null){
-      const p = pts[Math.max(0, Math.min(pts.length - 1, hov))];
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(hov), Y(p[1]), 2.5, 0, 7); ctx.fill();
-      const label = `${isoFr(p[0])} · ${eur(p[1])}`;   // date jj/mm/aaaa
-      ctx.font = 'bold 10px sans-serif';
-      const tw = ctx.measureText(label).width + 8;
-      const bx = Math.min(Math.max((mx != null ? mx : X(hov)) - tw / 2, 0), W - tw);
-      const by = my != null ? Math.min(my + 12, H - 14) : 0;   // fenêtre de hover SOUS le pointeur
-      ctx.fillStyle = 'rgba(20,22,30,.92)'; ctx.fillRect(bx, by, tw, 13);
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(label, bx + 4, by + 10);
+      const lines = [];
+      for(const s of series){
+        if(!s.pts || !s.pts.length) continue;
+        const p = s.pts[Math.max(0, Math.min(s.pts.length - 1, hov))];
+        lines.push({color:s.color || accent, txt:`${s.label ? s.label + ' · ' : ''}${isoFr(p[0])} · ${eur(p[1])}`});
+      }
+      if(lines.length){
+        const s0 = series.find(s => s.pts && s.pts.length);
+        const p0 = s0.pts[Math.max(0, Math.min(s0.pts.length - 1, hov))];
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(hov), Y(p0[1]), 2.5, 0, 7); ctx.fill();
+        ctx.font = 'bold 10px sans-serif';
+        const tw = Math.max(...lines.map(l => ctx.measureText(l.txt).width)) + 8;
+        const th = lines.length * 13 + 4;
+        const bx = Math.min(Math.max((mx != null ? mx : X(hov)) - tw / 2, 0), W - tw);
+        const by = my != null ? Math.min(my + 12, H - th - 2) : 0;   // fenêtre de hover SOUS le pointeur
+        ctx.fillStyle = 'rgba(20,22,30,.92)'; ctx.fillRect(bx, by, tw, th);
+        lines.forEach((l, i) => { ctx.fillStyle = l.color; ctx.textAlign = 'left'; ctx.fillText(l.txt, bx + 4, by + 11 + i * 13); });
+      }
     }
   };
   paint(null);
   cv.onmousemove = e => {
     const r = cv.getBoundingClientRect();
-    const i = Math.round((e.clientX - r.left - 2) / (r.width - 4) * (pts.length - 1 || 0));
-    paint(Math.max(0, Math.min(pts.length - 1, i)), e.clientX - r.left, e.clientY - r.top);
+    const i = Math.round((e.clientX - r.left - 2) / (r.width - 4) * (maxLen - 1 || 0));
+    paint(Math.max(0, Math.min(maxLen - 1, i)), e.clientX - r.left, e.clientY - r.top);
   };
   cv.onmouseleave = () => paint(null);
 }
@@ -695,6 +721,6 @@ async function loadPriceChart(c, modal){
   drawPriceChart(box.querySelector('#pricecv'), series);
 }
 
-R.views.market = vMarket; R.loadPriceChart = loadPriceChart; R.drawPriceChart = drawPriceChart;
+R.views.market = vMarket; R.loadPriceChart = loadPriceChart; R.drawPriceChart = drawPriceChart; R.drawSpark = drawSpark;
 
 export { vMarket, drawPriceChart, loadPriceChart };
