@@ -13,7 +13,7 @@ import { loadPriceDays, mountPriceTimeline, priceDays, frOfDay } from '../core/p
    Vue "cartes" : filtres (mêmes contrôles que la recherche avancée, sans jauge de prix)
    + jauge de dates à 2 curseurs directement sur la timeline (priceline) + récap
    (KPI/histo/indice) + table triable globalement (serveur, format liste collection).
-   Vue "éditions" : évolution du coût de chaque extension sur la fenêtre [from,to] (priceline + tableau triable).
+   Vue "éditions" : évolution du coût de chaque extension sur la fenêtre [from,to] (priceline + tableau triable ; coût = normal + foil par impression).
    ============================================================ */
 let mk = Object.assign({
   mode: 'cartes', name: '', artist: '', colors: [], types: [], cmc: '', set: '',
@@ -514,7 +514,7 @@ function vMarket(app){
       </div>
     </div>
     <p class="hint" style="margin:6px 0 2px">Source : prix retail Cardmarket (EUR) accumulés dans <code>prices.db</code> (MTGJSON via <code>price_seed.py</code>). Les prix affichés dans toute l'app viennent exclusivement de cette base.</p>
-    ${mk.mode==='cartes' ? filtersHTML() : `<p class="hint" style="margin-top:14px">Vue <b>Éditions</b> : évolution du coût de chaque extension sur la période choisie avec les 2 curseurs ci-dessous (chaque carte est valorisée une fois, en version non foil).</p>`}
+    ${mk.mode==='cartes' ? filtersHTML() : `<p class="hint" style="margin-top:14px">Vue <b>Éditions</b> : évolution du coût de chaque extension sur la période choisie avec les 2 curseurs ci-dessous (chaque impression est valorisée une fois en non foil, plus une fois en foil si un prix foil existe).</p>`}
     <div id="priceline" class="daterange" style="margin-top:10px"></div>
     <div class="row" style="justify-content:space-between;margin-top:2px">
       <span class="hint" id="dtminlab" style="font-weight:600"></span>

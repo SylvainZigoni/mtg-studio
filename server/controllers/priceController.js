@@ -398,10 +398,10 @@ export function apiMarketCards(req, res) {
 /* GET /api/market/sets — vue "éditions" du Marché.
    ?from=&to= (ordinals, requis)
    -> { ok, from, to, n, sets:[{set, n, was, now, flat, pct, impact}] }
-   Coût d'une édition = somme des prix NORMAL au jour `from` ("avant") puis au jour `to` ("après"),
-   UNE valorisation par impression : même dédup que /api/market/cards (LOWER(name), "set", cn,
-   anglais préféré via le CTE picked) — chaque carte n'est comptée qu'une seule fois, version
-   classique non foil (une carte imprimée en plusieurs langues n'est valorisée qu'une fois).
+   Coût d'une édition = somme des prix au jour `from` ("avant") puis au jour `to` ("après"),
+   UNE valorisation par impression ET PAR FINITION : normal + foil si un prix foil existe
+   (même dédup que /api/market/cards : LOWER(name), "set", cn, anglais préféré via le CTE picked ;
+   une carte imprimée en plusieurs langues n'est valorisée qu'une fois par finition).
    was = blobAt(normal, from) ; si aucun prix valide à from (point aberrant <= 0 ou série commencée
    dans la fenêtre), "avant" = 1er prix valide dans [from, to] (même règle que /api/market/cards).
    impact = somme sur les entrées de la collection de l'édition de (flat unitaire x qté), flat lu sur
@@ -423,23 +423,30 @@ function computeMarketSets(from, to) {
     const first = blobPoints(blob).find(p => p[0] >= from && p[0] <= to && p[1] > 0);
     return first ? first[1] : null;
   };
-  // ---- coût du set : une ligne par impression (même CTE picked que /api/market/cards), blob NORMAL
+  // ---- coût du set : une ligne par impression (même CTE picked que /api/market/cards),
+  // valorisée en NORMAL et en FOIL si un prix foil existe -> colle au KPI "Evolution totale"
+  // de la vue Cartes en "foil et non foil"
   const rows = c.prepare(`WITH picked AS (
       SELECT LOWER(name) AS lname, "set" AS st, cn,
              COALESCE(MIN(CASE WHEN lang='English' THEN scryfall_id END), MIN(scryfall_id)) AS sfid
       FROM cards GROUP BY LOWER(name), "set", cn)
-    SELECT c.scryfall_id, c."set" AS st, s.normal
+    SELECT c.scryfall_id, c."set" AS st, s.normal, s.foil
     FROM picked p JOIN cards c ON c.scryfall_id = p.sfid JOIN series s ON s.uuid = c.uuid
-    WHERE s.normal IS NOT NULL`).all();
+    WHERE s.normal IS NOT NULL OR s.foil IS NOT NULL`).all();
   for (const r of rows) {
     if (!r.st) continue;
-    const wasEff = wasEffOf(r.normal);
-    const nowP = blobAt(r.normal, to);
-    if (wasEff == null || nowP == null) continue;   // pas d'évolution calculable sur la fenêtre
     const a = getA(r.st);
-    a.n++;
-    a.was += wasEff;
-    a.now += nowP;
+    let counted = false;
+    for (const blob of [r.normal, r.foil]) {   // chaque impression valorisée en normal + foil
+      if (!blob) continue;
+      const wasEff = wasEffOf(blob);
+      const nowP = blobAt(blob, to);
+      if (wasEff == null || nowP == null) continue;   // pas d'évolution calculable sur la fenêtre
+      a.was += wasEff;
+      a.now += nowP;
+      counted = true;
+    }
+    if (counted) a.n++;
   }
   // ---- impact collection : flat de la finition possédée (normal ou foil) x qté, par entrée
   for (const e of collectionEntries()) {
