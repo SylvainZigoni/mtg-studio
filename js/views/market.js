@@ -436,7 +436,7 @@ function setsTableHTML(rows){
   return `<table id="mk-table"><thead><tr>
     <th style="width:6%"></th>${th('name','Extension','38%')}${th('date','Date','8%')}<th style="width:20%;cursor:default">Coût du set (avant → après)</th>${th('flat','Évol. €','10%')}${th('pct','Évol. %','6%')}${th('impact','Impact coll.','12%')}
   </tr></thead><tbody>
-  ${rows.map(r => `<tr data-s="${esc(r.code)}" style="cursor:pointer" title="Voir le détail de cette extension">
+  ${rows.map(r => `<tr data-s="${esc(r.code)}" style="cursor:pointer" title="Basculer sur la vue Cartes avec cette extension en filtre">
     <td>${r.icon?`<img class="seticon" src="${r.icon}" style="width:24px;height:24px" alt="">`:'◈'}</td>
     <td><b>${esc(r.name)}</b> <span class="pill">${esc(String(r.code||'').toUpperCase())}</span></td>
     <td class="hint">${frDate(r.released_at)}</td>
@@ -471,7 +471,9 @@ function renderSetsTable(app){
     else { mk.esort = s; mk.edir = (s === 'name' || s === 'date') ? 'asc' : 'desc'; }
     saveMk(); renderSetsTable(app);
   });
-  res.querySelectorAll('#mk-table tr[data-s]').forEach(tr => tr.onclick = () => R.gotoSets(tr.dataset.s));
+  res.querySelectorAll('#mk-table tr[data-s]').forEach(tr => tr.onclick = () => {
+    mk.mode = 'cartes'; mk.set = tr.dataset.s; mk.page = 1; saveMk(); vMarket(app);   // vue Cartes, filtre extension renseigné+affiché, recherche relancée
+  });
 }
 
 /* charge /api/market/sets?from=&to= et joint les métadonnées Scryfall (nom, date, logo) */
