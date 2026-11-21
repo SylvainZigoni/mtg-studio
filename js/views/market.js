@@ -1,4 +1,4 @@
-import { esc, eur, norm, TYPES_LIST } from '../core/util.js';
+import { esc, eur, norm, frDate, TYPES_LIST } from '../core/util.js';
 
 import { store } from '../core/store.js';
 
@@ -13,11 +13,12 @@ import { loadPriceDays, mountPriceTimeline, priceDays, frOfDay } from '../core/p
    Vue "cartes" : filtres (mêmes contrôles que la recherche avancée, sans jauge de prix)
    + jauge de dates à 2 curseurs directement sur la timeline (priceline) + récap
    (KPI/histo/indice) + table triable globalement (serveur, format liste collection).
-   Vue "éditions" : à venir.
+   Vue "éditions" : évolution du coût de chaque extension sur la fenêtre [from,to] (priceline + tableau triable).
    ============================================================ */
 let mk = Object.assign({
   mode: 'cartes', name: '', artist: '', colors: [], types: [], cmc: '', set: '',
   reserved: false, coll: false, foil: '', sort: 'pct', dir: 'desc', page: 1, limit: 25,
+  esort: 'date', edir: 'desc',
 }, store.get('mtg_market', {}));
 // migration : l'ancien filtre "type" (select unique) devient "types" (cases à cocher multiples)
 if (!Array.isArray(mk.types)) mk.types = mk.type ? [mk.type] : [];
@@ -84,7 +85,7 @@ function filtersHTML(){
 
 /* jauge de dates à 2 curseurs, superposée directement sur la timeline de #priceline
    (calée sur les jours historisés de prices.db) ; les 2 dates choisies s'affichent dessous */
-function wireDateGauge(app){
+function wireDateGauge(app, onChange){
   const D = priceDays(); if(!D) return;
   const days = (Array.isArray(D.days) && D.days.length ? D.days : [...D.set].sort((a, b) => a - b));   // ordinals triés (jours avec >= 1 prix)
   const n = days.length;
@@ -104,7 +105,7 @@ function wireDateGauge(app){
   const apply = () => {   // on mémorise les bornes ; elles seront appliquées au clic sur "Rechercher" (pas de filtre en direct)
     let a = +rmin.value, b = +rmax.value;
     if(a > b){ const t = a; a = b; b = t; }
-    mk.from = days[a]; mk.to = days[b]; mk.page = 1; saveMk(); paint();
+    mk.from = days[a]; mk.to = days[b]; mk.page = 1; saveMk(); paint(); if(onChange) onChange();
   };
   rmin.addEventListener('input', paint);
   rmax.addEventListener('input', paint);
@@ -425,6 +426,79 @@ async function mkLoad(app){
   res.querySelectorAll('canvas.spark').forEach(cv => drawSpark(cv, JSON.parse(cv.dataset.spark || '[]')));
 }
 
+/* ---------- vue "éditions" : évolution du coût de chaque extension sur [from, to] ---------- */
+let mkSetsData = null;   // { j, rows } : dernières données reçues (re-tri local sans re-requête)
+
+/* tableau des éditions : même forme que l'écran Extensions (logo, nom + code raccourci, date de
+   parution) + coût avant -> après, évol. € / %, impact collection ; tri au clic sur les en-têtes */
+function setsTableHTML(rows){
+  const th = (k, label, w) => `<th data-s="${k}" style="${w?`width:${w};`:''}cursor:pointer;user-select:none">${label}${mk.esort===k?(mk.edir==='asc'?' ▲':' ▼'):''}</th>`;
+  return `<table id="mk-table"><thead><tr>
+    <th style="width:60px"></th>${th('name','Extension')}${th('date','Date',100)}<th style="width:190px;cursor:default">Coût du set (avant → après)</th>${th('flat','Évol. €',90)}${th('pct','Évol. %',90)}${th('impact','Impact coll.',110)}
+  </tr></thead><tbody>
+  ${rows.map(r => `<tr data-s="${esc(r.code)}" style="cursor:pointer" title="Voir le détail de cette extension">
+    <td>${r.icon?`<img class="seticon" src="${r.icon}" style="width:24px;height:24px" alt="">`:'◈'}</td>
+    <td><b>${esc(r.name)}</b> <span class="pill">${esc(String(r.code||'').toUpperCase())}</span></td>
+    <td class="hint">${frDate(r.released_at)}</td>
+    <td class="p">${r.was!=null?eur(r.was):'—'} → ${r.now!=null?eur(r.now):'—'}</td>
+    <td class="p" style="color:${pctColor(r.flat)};font-weight:700">${r.flat==null?'—':((r.flat>=0?'+':'')+eur(r.flat))}</td>
+    <td class="p" style="color:${pctColor(r.pct)};font-weight:700">${r.pct==null?'—':((r.pct>=0?'+':'')+(r.pct*100).toFixed(1).replace('.',',')+'%')}</td>
+    <td class="p" style="color:${pctColor(r.impact)};font-weight:700" title="Somme des évolutions € de chaque carte de l'édition présente dans ma collection × quantité possédée">${r.impact==null?'—':((r.impact>=0?'+':'')+eur(r.impact))}</td>
+  </tr>`).join('')}
+  </tbody></table>`;
+}
+
+function renderSetsTable(app){
+  const res = app.querySelector('#mkres'); if(!res || !mkSetsData) return;
+  const { j, rows } = mkSetsData;
+  const dir = mk.edir === 'asc' ? 1 : -1;
+  const cmp = ({
+    name: (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'fr'),
+    date: (a, b) => String(a.released_at || '').localeCompare(String(b.released_at || '')),
+    flat: (a, b) => (a.flat ?? -Infinity) - (b.flat ?? -Infinity),
+    pct: (a, b) => (a.pct ?? -Infinity) - (b.pct ?? -Infinity),
+    impact: (a, b) => (a.impact ?? -Infinity) - (b.impact ?? -Infinity),
+  })[mk.esort] || ((a, b) => String(a.released_at || '').localeCompare(String(b.released_at || '')));
+  const sorted = rows.slice().sort((a, b) => {
+    const noA = a.flat == null, noB = b.flat == null;
+    if(noA !== noB) return noA ? 1 : -1;   // extensions sans prix sur la fenêtre : toujours en dernier
+    return cmp(a, b) * dir;
+  });
+  res.innerHTML = `<p class="hint">${sorted.length.toLocaleString('fr-FR')} extensions · fenêtre ${isoFr(j.from)} → ${isoFr(j.to)} · ${(j.n||0).toLocaleString('fr-FR')} avec prix historisés</p>` + setsTableHTML(sorted);
+  res.querySelectorAll('#mk-table th[data-s]').forEach(th => th.onclick = () => {
+    const s = th.dataset.s;
+    if(mk.esort === s) mk.edir = mk.edir === 'asc' ? 'desc' : 'asc';
+    else { mk.esort = s; mk.edir = (s === 'name' || s === 'date') ? 'asc' : 'desc'; }
+    saveMk(); renderSetsTable(app);
+  });
+  res.querySelectorAll('#mk-table tr[data-s]').forEach(tr => tr.onclick = () => R.gotoSets(tr.dataset.s));
+}
+
+/* charge /api/market/sets?from=&to= et joint les métadonnées Scryfall (nom, date, logo) */
+async function mkSetsLoad(app){
+  const res = app.querySelector('#mkres'); if(!res) return;
+  const D = priceDays();
+  if(!D){ res.innerHTML = '<p class="hint">prices.db indisponible : lancez une mise à jour (Paramètres).</p>'; return; }
+  if(mk.from == null){ mk.from = D.from; mk.to = D.to; }
+  res.innerHTML = `<div class="mkloading"><div class="spin" style="width:48px;height:48px;border-width:4px"></div><p class="hint">Calcul des évolutions par édition…</p></div>`;
+  let j = null;
+  try{ j = await (await fetch('/api/market/sets?from=' + String(mk.from) + '&to=' + String(mk.to))).json(); }catch(e){}
+  if(!j || !j.ok){ res.innerHTML = `<p class="hint">⚠ ${esc((j && j.error) || 'serveur injoignable')}</p>`; return; }
+  let sfList = [];
+  try{ sfList = (await sfSets()).filter(s => !s.digital); }catch(e){}
+  const valMap = new Map((j.sets || []).map(r => [String(r.set || '').toLowerCase(), r]));
+  const rows = sfList.map(s => {
+    const v = valMap.get(s.code.toLowerCase()) || null;
+    valMap.delete(s.code.toLowerCase());
+    return { code: s.code, name: s.name, released_at: s.released_at, icon: s.icon, card_count: s.card_count,
+      n: v ? v.n : 0, was: v ? v.was : null, now: v ? v.now : null, flat: v ? v.flat : null, pct: v ? v.pct : null, impact: v ? v.impact : null };
+  });
+  for(const [code, v] of valMap) rows.push({ code, name: String(code).toUpperCase(), released_at: null, icon: null, card_count: null,
+    n: v.n, was: v.was, now: v.now, flat: v.flat, pct: v.pct, impact: v.impact });   // sets connus de prices.db mais absents de Scryfall
+  mkSetsData = { j, rows };
+  renderSetsTable(app);
+}
+
 /* ---------- vue principale ---------- */
 function vMarket(app){
   app.innerHTML = `
@@ -437,21 +511,17 @@ function vMarket(app){
       </div>
     </div>
     <p class="hint" style="margin:6px 0 2px">Source : prix retail Cardmarket (EUR) accumulés dans <code>prices.db</code> (MTGJSON via <code>price_seed.py</code>). Les prix affichés dans toute l'app viennent exclusivement de cette base.</p>
-    ${mk.mode==='editions' ? `
-      <p class="hint" style="margin-top:14px">Vue <b>Éditions</b> — en construction. Revenez bientôt : valorisation et évolution par extension.</p>
-    ` : `
-      ${filtersHTML()}
-      <div id="priceline" class="daterange" style="margin-top:10px"></div>
-      <div class="row" style="justify-content:space-between;margin-top:2px">
-        <span class="hint" id="dtminlab" style="font-weight:600"></span>
-        <span class="hint" id="dtmaxlab" style="font-weight:600"></span>
-      </div>
-      <div class="row" id="mk-kpi" style="gap:12px;flex-wrap:wrap;margin:10px 0 4px;align-items:stretch"></div>
-      <div id="mkres" style="margin-top:10px"><p class="hint">Chargement…</p></div>
-    `}
+    ${mk.mode==='cartes' ? filtersHTML() : `<p class="hint" style="margin-top:14px">Vue <b>Éditions</b> : évolution du coût de chaque extension sur la période choisie avec les 2 curseurs ci-dessous (chaque carte est valorisée une fois, en version non foil).</p>`}
+    <div id="priceline" class="daterange" style="margin-top:10px"></div>
+    <div class="row" style="justify-content:space-between;margin-top:2px">
+      <span class="hint" id="dtminlab" style="font-weight:600"></span>
+      <span class="hint" id="dtmaxlab" style="font-weight:600"></span>
+    </div>
+    ${mk.mode==='cartes' ? '<div class="row" id="mk-kpi" style="gap:12px;flex-wrap:wrap;margin:10px 0 4px;align-items:stretch"></div>' : ''}
+    <div id="mkres" style="margin-top:10px"><p class="hint">Chargement…</p></div>
   </div>`;
   app.querySelectorAll('[data-mode]').forEach(el => el.onclick = () => { mk.mode = el.dataset.mode; saveMk(); vMarket(app); });
-  if(mk.mode !== 'cartes') return;
+  if(mk.mode === 'cartes'){
 
   const go = async () => {
     const raw = mk.name.trim();
@@ -552,15 +622,17 @@ function vMarket(app){
     saveMk(); vMarket(app);
   };
 
-  Promise.all([loadPriceDays(), setsReady]).then(() => {
+  }
+
+  Promise.all([loadPriceDays(), sfSets().catch(() => [])]).then(() => {
     const pl = app.querySelector('#priceline');
     mountPriceTimeline(pl);   // timeline vert/rouge dans la priceline
     // les 2 boules déplaçables directement sur la priceline
     pl.insertAdjacentHTML('beforeend',
       '<input type="range" id="dtmin" min="0" max="100" step="1" value="0">' +
       '<input type="range" id="dtmax" min="0" max="100" step="1" value="100">');
-    try{ wireDateGauge(app); }catch(e){ console.error('jauge de dates', e); }
-    mkLoad(app);
+    try{ wireDateGauge(app, () => { if(mk.mode === 'editions') mkSetsLoad(app); }); }catch(e){ console.error('jauge de dates', e); }
+    if(mk.mode === 'cartes') mkLoad(app); else mkSetsLoad(app);
   });
 }
 

@@ -1,4 +1,4 @@
-import { apiPrice, apiPriceDays, apiPricesLast, apiMarket, apiMarketCards, apiMarketCardsStatus, apiCollvalue, apiSetvalues, apiPricerange, apiToday, apiPriceStatus, apiPriceSeed } from '../controllers/priceController.js';
+import { apiPrice, apiPriceDays, apiPricesLast, apiMarket, apiMarketCards, apiMarketCardsStatus, apiMarketSets, apiCollvalue, apiSetvalues, apiPricerange, apiToday, apiPriceStatus, apiPriceSeed } from '../controllers/priceController.js';
 
 export function registerPriceRoutes(app) {
   app.get('/api/price', apiPrice);
@@ -7,6 +7,7 @@ export function registerPriceRoutes(app) {
   app.get('/api/market', apiMarket);
   app.get('/api/market/cards', apiMarketCards);
   app.get('/api/market/cards/status', apiMarketCardsStatus);
+  app.get('/api/market/sets', apiMarketSets);
   app.get('/api/collvalue', apiCollvalue);
   app.get('/api/setvalues', apiSetvalues);
   app.get('/api/pricerange', apiPricerange);

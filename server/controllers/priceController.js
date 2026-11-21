@@ -395,6 +395,84 @@ export function apiMarketCards(req, res) {
   }).catch(e => sendJson(res, 502, { ok: false, error: String((e && e.message) || e) }));
 }
 /* Valorisation de la collection : maintenant et aux fenêtres passées */
+/* GET /api/market/sets — vue "éditions" du Marché.
+   ?from=&to= (ordinals, requis)
+   -> { ok, from, to, n, sets:[{set, n, was, now, flat, pct, impact}] }
+   Coût d'une édition = somme des prix NORMAL (version classique, une valorisation par carte,
+   pas la finition foil) au jour `from` ("avant") puis au jour `to` ("après").
+   was = blobAt(normal, from) ; si aucun prix valide à from (point aberrant <= 0 ou série
+   commencée dans la fenêtre), "avant" = 1er prix valide dans [from, to] (même règle que /api/market/cards).
+   impact = somme sur les cartes de l'édition présentes dans la collection de (flat unitaire x qté),
+   quantité résolue par (set,cn) -> scryfall_id (resolveCollSfid), version normale.
+   pct en fraction (comme /api/market/cards). Cache 12h, invalidé par le mtime de prices.db
+   ET de mtg_data.db (la collection change les impacts). */
+const marketSetsCache = new Map();
+const marketSetsRunning = new Map();   // key -> Promise : évite les calculs en double
+
+function computeMarketSets(from, to) {
+  const c = getPricesDb();
+  // qté collection par scryfall_id, version normale (comme la valorisation du set)
+  const collMap = new Map();
+  for (const e of collectionEntries()) {
+    if ((e.qty || 1) <= 0) continue;
+    const sfid = resolveCollSfid(c, { ...e, foil: false });
+    if (!sfid) continue;
+    collMap.set(sfid, (collMap.get(sfid) || 0) + (e.qty || 1));
+  }
+  const rows = c.prepare('SELECT c.scryfall_id, c."set" AS st, s.normal FROM cards c JOIN series s ON s.uuid = c.uuid WHERE s.normal IS NOT NULL').all();
+  const agg = new Map();   // st -> {set, n, was, now, impact}
+  for (const r of rows) {
+    if (!r.st) continue;
+    let was = blobAt(r.normal, from);
+    let wasEff = (was != null && was > 0) ? was : null;   // points aberrants MTGJSON (<= 0 EUR) ignorés ; les vrais prix bas (0,02-0,09 EUR) comptent
+    if (wasEff == null) {
+      const first = blobPoints(r.normal).find(p => p[0] >= from && p[0] <= to && p[1] > 0);
+      if (first) wasEff = first[1];   // série commencée dans la fenêtre : 1er prix valide connu
+    }
+    const nowP = blobAt(r.normal, to);
+    if (wasEff == null || nowP == null) continue;   // pas d'évolution calculable sur la fenêtre
+    let a = agg.get(r.st);
+    if (!a) { a = { set: r.st, n: 0, was: 0, now: 0, impact: 0 }; agg.set(r.st, a); }
+    a.n++;
+    a.was += wasEff;
+    a.now += nowP;
+    const qty = collMap.get(r.scryfall_id) || 0;
+    if (qty > 0) a.impact += (nowP - wasEff) * qty;
+  }
+  const sets = [...agg.values()].map(a => ({
+    set: a.set, n: a.n,
+    was: round2(a.was), now: round2(a.now), flat: round2(a.now - a.was),
+    pct: a.was > 0 ? (a.now - a.was) / a.was : null,
+    impact: round2(a.impact),
+  }));
+  return { ok: true, from: dayStr(from), to: dayStr(to), n: sets.length, sets };
+}
+
+export function apiMarketSets(req, res) {
+  const q = req.query;
+  const from = parseInt(q.from, 10) || 0;
+  const to = Math.max(from, parseInt(q.to, 10) || todayOrdinal());
+  if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
+  if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
+  // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
+  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + fs.statSync(DB_PATH).mtimeMs;
+  const key = mtime + '|' + from + '|' + to;
+  const nowS = Date.now() / 1000;
+  const hit = marketSetsCache.get(key);
+  if (hit && nowS - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
+  if (marketSetsCache.size > 8) marketSetsCache.delete(marketSetsCache.keys().next().value);
+  let p = marketSetsRunning.get(key);
+  if (!p) {
+    p = Promise.resolve().then(() => computeMarketSets(from, to));
+    marketSetsRunning.set(key, p);
+    p.finally(() => marketSetsRunning.delete(key)).catch(() => {});
+  }
+  p.then(result => {
+    marketSetsCache.set(key, { ts: nowS, result });
+    sendJson(res, 200, result);
+  }).catch(e => sendJson(res, 502, { ok: false, error: String((e && e.message) || e) }));
+}
+
 /* Valeur totale de CHAQUE extension en une seule requête SQL depuis prices.db (cache 12h).
    Équivalent à la somme des prix Scryfall par set, mais instantané : pas d'appel API externe. */
 const setValsCache = { ts: 0, result: null };
