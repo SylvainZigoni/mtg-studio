@@ -27,10 +27,10 @@ import { R, S } from '../core/registry.js';
      -> ordre alphabétique du nom du deck ; clic ligne -> showDeck
    ============================================================ */
 const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
-const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Joueurs']];
-const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
+const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Nombre de joueurs']];
+const T8_COLW = [12, 6, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
-let t8 = { fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', open:new Set(), _rt:null };
+let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
 let t8Bounds = null;    // bornes (ordinaux de jours) des dates d'events
 let ddCloseBound = false;
@@ -119,9 +119,10 @@ async function vDecks(app){
         </div>
       </div>
       <select id="t8players">${T8_BUCKETS.map(([v,l]) => `<option value="${v}" ${t8.players===v?'selected':''}>${l}</option>`).join('')}</select>
-      <span class="gosearch"><input type="text" id="t8q" placeholder="Rechercher un tournoi" value="${esc(t8.q)}"><button type="button" class="btn" id="t8qgo">Go</button></span>
-      <span class="gosearch"><input type="text" id="t8qp" placeholder="Rechercher un joueur" title="Bientôt disponible"><button type="button" class="btn ghost" id="t8qpgo" title="Bientôt disponible">Go</button></span>
-      <span class="gosearch"><input type="text" id="t8qc" placeholder="Rechercher une carte" title="Bientôt disponible"><button type="button" class="btn ghost" id="t8qcgo" title="Bientôt disponible">Go</button></span>
+      ${[['ev','Rechercher un tournoi'],['pl','Rechercher un joueur'],['cd','Rechercher une carte']].map(([m,ph]) => {
+        const active = t8.mode===m, goOn = active && m==='ev';
+        return `<span class="gosearch-wrap"><input type="radio" name="t8mode" value="${m}" class="t8radio" ${active?'checked':''} title="Recherche : ${ph.replace('Rechercher un ','')}"><span class="gosearch"><input type="text" id="t8q-${m}" placeholder="${ph}" value="${m==='ev'?esc(t8.q):''}"${active?'':' disabled'}><button type="button" class="btn${goOn?'':' ghost'}" id="t8go-${m}"${goOn?'':' disabled'} title="${goOn?'Lancer la recherche':'Bientôt disponible'}">Go</button></span></span>`;
+      }).join('')}
     </div>
     <div class="row" style="margin-top:12px">
       <span class="hint">Date :</span>
@@ -159,9 +160,10 @@ async function vDecks(app){
     syncFmt(); renderT8Results(app);
   });
   app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; renderT8Results(app); };
-  const doQ = () => { t8.q = app.querySelector('#t8q').value.trim(); renderT8Results(app); };
-  app.querySelector('#t8qgo').onclick = doQ;
-  app.querySelector('#t8q').onkeydown = e => { if(e.key==='Enter') doQ(); };
+  app.querySelectorAll('.t8radio').forEach(r => r.onchange = () => { t8.mode = r.value; t8.q = ''; vDecks(app); });
+  const doQ = () => { t8.q = app.querySelector('#t8q-ev').value.trim(); renderT8Results(app); };
+  app.querySelector('#t8go-ev').onclick = doQ;
+  app.querySelector('#t8q-ev').onkeydown = e => { if(e.key==='Enter') doQ(); };
   const evmin = app.querySelector('#evmin'), evmax = app.querySelector('#evmax');
   const labs = () => {
     app.querySelector('#evlabmin').textContent = frDate(isoOf(+evmin.value));
@@ -204,7 +206,6 @@ function renderT8Results(app){
       `<tr class="evdetail" data-eid="${e.eid}"${open?'':' style="display:none"'}><td colspan="6">${open ? t8deckSubHTML(e) : ''}</td></tr>`;
   }).join('');
   box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_COLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_COLS.map(([c]) => th(c)).join('')}<th class="c-chev"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
-  document.documentElement.style.setProperty('--t8kpi-h', (kpi.offsetHeight || 104) + 'px');
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';

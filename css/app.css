@@ -369,3 +369,8 @@ tr.dkrow .arch{color:var(--accent2);font-weight:600}
 .evtable th{padding:6px 4px;font-size:13px}
 .evtable td{padding:6px 4px}
 .evtable td.c-date{white-space:nowrap}
+
+/* ===== v5 : boutons radio de choix du mode de recherche (tournoi/joueur/carte) ===== */
+.gosearch-wrap{display:inline-flex;align-items:center;gap:6px}
+.t8radio{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:0;flex:none}
+.t8f input:disabled,.t8f button:disabled{opacity:.45;cursor:not-allowed}
