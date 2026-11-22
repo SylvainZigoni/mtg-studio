@@ -296,10 +296,10 @@ function renderT8Player(app){
       `<div class="arch-item" data-arch="${esc(a)}" data-fmt="${esc(f)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${idxs.length ? Math.round(n/idxs.length*100) : 0}%</span></div>`).join('');
   }
   arch.innerHTML = ahtml || '<p class="hint">Aucun deck ne correspond aux filtres.</p>';
-  const th = c => `<th data-col="${c}" class="c-${c}">${T8_PCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
+  const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_PCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
   const rows = idxs.map(i => {
     const d = DECKS[i];
-    return `<tr class="dkrow2" data-i="${i}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date">${frDate(d[8])}</td><td class="c-fmt"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank">#${d[2]}</td><td class="c-players">${d[12]==null?'—':d[12]}</td></tr>`;
+    return `<tr class="dkrow2" data-i="${i}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date" style="text-align:center">${frDate(d[8])}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank" style="text-align:center">#${d[2]}</td><td class="c-players" style="text-align:center">${d[12]==null?'—':d[12]}</td></tr>`;
   }).join('');
   box.innerHTML = `<div class="evscroll"><table class="evtable ptable"><colgroup>${T8_PCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_PCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="7" class="hint">Aucun deck ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
