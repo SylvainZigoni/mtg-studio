@@ -374,3 +374,9 @@ tr.dkrow .arch{color:var(--accent2);font-weight:600}
 .gosearch-wrap{display:inline-flex;align-items:center;gap:6px}
 .t8radio{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:0;flex:none}
 .t8f input:disabled,.t8f button:disabled{opacity:.45;cursor:not-allowed}
+
+/* ===== v6 : mode recherche par joueur (tableau decks + archétypes groupés par format) ===== */
+.arch-fmt{font-weight:700;color:var(--accent);font-size:12px;margin:10px 0 3px;letter-spacing:.4px}
+tr.dkrow2{cursor:pointer}
+tr.dkrow2:hover td{background:var(--panel2)}
+td.c-deck{color:var(--accent);font-weight:600}

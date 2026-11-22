@@ -27,8 +27,10 @@ import { R, S } from '../core/registry.js';
      -> ordre alphabétique du nom du deck ; clic ligne -> showDeck
    ============================================================ */
 const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
-const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Nombre de joueurs']];
-const T8_COLW = [12, 6, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
+const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Joueurs']];
+const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
+const T8_PCOLS = [['player','Joueur'],['date','Date'],['fmt','Format'],['evname','Nom du tournoi'],['deck','Deck joué'],['players','Joueurs']];
+const T8_PCOLW = [20, 12, 8, 30, 20, 10];   // % : joueur, date, format, tournoi, deck, joueurs   // % : date, format, nom, lieu, nb joueurs, flèche
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
 let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
@@ -63,7 +65,22 @@ function t8playersOk(e){
   return true;
 }
 
+function t8filteredDecks(){
+  const q = norm(t8.q);
+  const out = [];
+  for(let i=0;i<DECKS.length;i++){
+    const d = DECKS[i];
+    if(t8.fmts.length && !t8.fmts.includes(d[1])) continue;
+    if(!t8playersOk({players:d[12]})) continue;
+    if(d[8] && (ordOf(d[8])<t8.dateFrom || ordOf(d[8])>t8.dateTo)) continue;
+    if(q && !norm(d[5]||'').includes(q)) continue;
+    out.push(i);
+  }
+  return out;
+}
+
 function t8filtered(){
+  if(t8.mode==='pl') return t8filteredDecks();
   const q = norm(t8.q);
   return EVENTS.filter(e =>
     (t8.fmts.length===0 || t8.fmts.includes(e.fmt)) &&
@@ -120,7 +137,7 @@ async function vDecks(app){
       </div>
       <select id="t8players">${T8_BUCKETS.map(([v,l]) => `<option value="${v}" ${t8.players===v?'selected':''}>${l}</option>`).join('')}</select>
       ${[['ev','Rechercher un tournoi'],['pl','Rechercher un joueur'],['cd','Rechercher une carte']].map(([m,ph]) => {
-        const active = t8.mode===m, goOn = active && m==='ev';
+        const active = t8.mode===m, goOn = active && m!=='cd';
         return `<span class="gosearch-wrap"><input type="radio" name="t8mode" value="${m}" class="t8radio" ${active?'checked':''} title="Recherche : ${ph.replace('Rechercher un ','')}"><span class="gosearch"><input type="text" id="t8q-${m}" placeholder="${ph}" value="${m==='ev'?esc(t8.q):''}"${active?'':' disabled'}><button type="button" class="btn${goOn?'':' ghost'}" id="t8go-${m}"${goOn?'':' disabled'} title="${goOn?'Lancer la recherche':'Bientôt disponible'}">Go</button></span></span>`;
       }).join('')}
     </div>
@@ -161,9 +178,13 @@ async function vDecks(app){
   });
   app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; renderT8Results(app); };
   app.querySelectorAll('.t8radio').forEach(r => r.onchange = () => { t8.mode = r.value; t8.q = ''; vDecks(app); });
-  const doQ = () => { t8.q = app.querySelector('#t8q-ev').value.trim(); renderT8Results(app); };
-  app.querySelector('#t8go-ev').onclick = doQ;
-  app.querySelector('#t8q-ev').onkeydown = e => { if(e.key==='Enter') doQ(); };
+  ['ev','pl'].forEach(m => {
+    const inp = app.querySelector('#t8q-'+m), go = app.querySelector('#t8go-'+m);
+    if(!inp || !go) return;
+    const doQ = () => { t8.q = inp.value.trim(); renderT8Results(app); };
+    go.onclick = doQ;
+    inp.onkeydown = e => { if(e.key==='Enter') doQ(); };
+  });
   const evmin = app.querySelector('#evmin'), evmax = app.querySelector('#evmax');
   const labs = () => {
     app.querySelector('#evlabmin').textContent = frDate(isoOf(+evmin.value));
@@ -184,6 +205,7 @@ async function vDecks(app){
 }
 
 function renderT8Results(app){
+  if(t8.mode==='pl') return renderT8Player(app);
   const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
   if(!box) return;
   const evs = t8sorted(t8filtered());
@@ -231,6 +253,69 @@ function renderT8Results(app){
   });
 }
 
+
+function t8sortedDecks(idxs){
+  const c = t8.sortCol, d = t8.sortDir==='desc' ? -1 : 1;
+  const val = i => { const dk = DECKS[i];
+    return c==='player' ? norm(dk[5]||'')
+      : c==='date' ? (dk[8]||'')
+      : c==='fmt' ? fmtShort(dk[1])
+      : c==='evname' ? norm(dk[6]||'')
+      : c==='deck' ? norm(dk[3]||'')
+      : (dk[12]==null ? null : +dk[12]); };
+  return [...idxs].sort((a,b) => {
+    const va = val(a), vb = val(b);
+    if(c==='players' && (va==null || vb==null)) return va==null ? 1 : -1;
+    const r = c==='players' ? va-vb : (va<vb ? -1 : va>vb ? 1 : 0);
+    return (r || (DECKS[b][8]||'').localeCompare(DECKS[a][8]||'')) * d;
+  });
+}
+
+/* mode 'pl' : tableau des decks du joueur + archétypes groupés par format + KPI decks/tournois */
+function renderT8Player(app){
+  const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
+  if(!box) return;
+  const idxs = t8sortedDecks(t8filtered());
+  const evSet = new Set();
+  for(const i of idxs) evSet.add(DECKS[i][9]);
+  kpi.innerHTML = `<div class="big">${idxs.length} deck${idxs.length>1?'s trouvés':' trouvé'}</div><div class="big2">${evSet.size} tournoi${evSet.size>1?'s':''}</div>`;
+  const byFmt = new Map();
+  for(const i of idxs){
+    const d = DECKS[i], f = fmtShort(d[1]), a = d[4] || '(sans archétype)';
+    if(!byFmt.has(f)) byFmt.set(f, new Map());
+    const m = byFmt.get(f);
+    m.set(a, (m.get(a)||0)+1);
+  }
+  const fmts = [...byFmt.keys()].sort();
+  let ahtml = '';
+  for(const f of fmts){
+    const m = byFmt.get(f);
+    const items = [...m.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
+    ahtml += `<div class="arch-fmt">${esc(f)}</div>` + items.map(([a,n]) =>
+      `<div class="arch-item" data-arch="${esc(a)}" data-fmt="${esc(f)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${idxs.length ? Math.round(n/idxs.length*100) : 0}%</span></div>`).join('');
+  }
+  arch.innerHTML = ahtml || '<p class="hint">Aucun deck ne correspond aux filtres.</p>';
+  const th = c => `<th data-col="${c}" class="c-${c}">${T8_PCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
+  const rows = idxs.map(i => {
+    const d = DECKS[i];
+    return `<tr class="dkrow2" data-i="${i}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date">${frDate(d[8])}</td><td class="c-fmt"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-players">${d[12]==null?'—':d[12]}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_PCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_PCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun deck ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
+  box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
+    const c = h.dataset.col;
+    if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
+    else { t8.sortCol = c; t8.sortDir = c==='date' ? 'desc' : 'asc'; }
+    renderT8Results(app);
+  });
+  box.querySelectorAll('tr.dkrow2').forEach(r => r.onclick = () => openDeckPage(+r.dataset.i));
+}
+
+function openDeckPage(i){
+  // TODO : page dédiée "deck joué par un joueur" (à coder plus tard).
+  // En attendant, le clic ouvre le visualiseur de deck existant.
+  showDeck(i);
+}
+R.openDeckPage = openDeckPage;   // hook exposé pour la future page
 
 /* ---- détail d'un deck : visualiseur complet (groupement, courbe, colorpies, legalités) ---- */
 let dvGroup = 'type', dvTab = 'main';           // état partagé du visualiseur
