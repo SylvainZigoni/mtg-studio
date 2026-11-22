@@ -29,8 +29,8 @@ import { R, S } from '../core/registry.js';
 const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
 const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Joueurs']];
 const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
-const T8_PCOLS = [['player','Joueur'],['date','Date'],['fmt','Format'],['evname','Nom du tournoi'],['deck','Deck joué'],['players','Joueurs']];
-const T8_PCOLW = [20, 12, 8, 30, 20, 10];   // % : joueur, date, format, tournoi, deck, joueurs   // % : date, format, nom, lieu, nb joueurs, flèche
+const T8_PCOLS = [['player','Nom'],['date','Date'],['fmt','Format'],['evname','Nom du tournoi'],['deck','Deck joué'],['rank','Rang'],['players','Joueurs']];
+const T8_PCOLW = [14, 12, 8, 30, 20, 6, 10];   // % : nom, date, format, tournoi, deck, rang, joueurs
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
 let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
@@ -262,6 +262,7 @@ function t8sortedDecks(idxs){
       : c==='fmt' ? fmtShort(dk[1])
       : c==='evname' ? norm(dk[6]||'')
       : c==='deck' ? norm(dk[3]||'')
+      : c==='rank' ? dk[2]
       : (dk[12]==null ? null : +dk[12]); };
   return [...idxs].sort((a,b) => {
     const va = val(a), vb = val(b);
@@ -298,9 +299,9 @@ function renderT8Player(app){
   const th = c => `<th data-col="${c}" class="c-${c}">${T8_PCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
   const rows = idxs.map(i => {
     const d = DECKS[i];
-    return `<tr class="dkrow2" data-i="${i}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date">${frDate(d[8])}</td><td class="c-fmt"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-players">${d[12]==null?'—':d[12]}</td></tr>`;
+    return `<tr class="dkrow2" data-i="${i}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date">${frDate(d[8])}</td><td class="c-fmt"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank">#${d[2]}</td><td class="c-players">${d[12]==null?'—':d[12]}</td></tr>`;
   }).join('');
-  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_PCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_PCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun deck ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
+  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_PCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_PCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="7" class="hint">Aucun deck ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';

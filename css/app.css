@@ -380,3 +380,7 @@ tr.dkrow .arch{color:var(--accent2);font-weight:600}
 tr.dkrow2{cursor:pointer}
 tr.dkrow2:hover td{background:var(--panel2)}
 td.c-deck{color:var(--accent);font-weight:600}
+
+/* ===== v7 : intitulés de colonnes centrés ; Date/Format/Rang/Joueurs centrés =====
+.evtable thead th{text-align:center}
+.evtable td.c-date,.evtable td.c-fmt,.evtable td.c-rank,.evtable td.c-players{text-align:center}
