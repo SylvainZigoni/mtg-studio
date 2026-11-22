@@ -301,7 +301,7 @@ function renderT8Player(app){
     const d = DECKS[i];
     return `<tr class="dkrow2" data-i="${i}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date">${frDate(d[8])}</td><td class="c-fmt"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank">#${d[2]}</td><td class="c-players">${d[12]==null?'—':d[12]}</td></tr>`;
   }).join('');
-  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_PCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_PCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="7" class="hint">Aucun deck ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
+  box.innerHTML = `<div class="evscroll"><table class="evtable ptable"><colgroup>${T8_PCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_PCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="7" class="hint">Aucun deck ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
