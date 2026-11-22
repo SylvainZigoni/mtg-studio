@@ -221,13 +221,13 @@ function renderT8Results(app){
   arch.innerHTML = al.length
     ? al.map(([a,n]) => `<div class="arch-item" data-arch="${esc(a)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${totDecks ? Math.round(n/totDecks*100) : 0}%</span></div>`).join('')
     : '<p class="hint">Aucun deck dans les tournois filtrés.</p>';
-  const th = c => `<th data-col="${c}" class="c-${c}">${T8_COLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
+  const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_COLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
   const rows = evs.map(e => {
     const open = t8.open.has(e.eid);
-    return `<tr class="evrow${open?' open':''}" data-eid="${e.eid}"><td class="c-date">${frDate(e.date)}</td><td class="c-fmt"><span class="fmt">${esc(fmtShort(e.fmt))}</span></td><td class="c-name">${esc(e.name||'')}</td><td class="c-place" title="${esc(e.place||'')}">${esc(e.place||'—')}</td><td class="c-players">${e.players==null?'—':e.players}</td><td class="c-chev"><span class="chev">▸</span></td></tr>` +
+    return `<tr class="evrow${open?' open':''}" data-eid="${e.eid}"><td class="c-date" style="text-align:center">${frDate(e.date)}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(e.fmt))}</span></td><td class="c-name">${esc(e.name||'')}</td><td class="c-place" title="${esc(e.place||'')}">${esc(e.place||'—')}</td><td class="c-players" style="text-align:center">${e.players==null?'—':e.players}</td><td class="c-chev" style="text-align:center"><span class="chev">▸</span></td></tr>` +
       `<tr class="evdetail" data-eid="${e.eid}"${open?'':' style="display:none"'}><td colspan="6">${open ? t8deckSubHTML(e) : ''}</td></tr>`;
   }).join('');
-  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_COLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_COLS.map(([c]) => th(c)).join('')}<th class="c-chev"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
+  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_COLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_COLS.map(([c]) => th(c)).join('')}<th class="c-chev" style="text-align:center"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table></div>`;
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
