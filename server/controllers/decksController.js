@@ -76,3 +76,123 @@ export function apiDecksMeta(req, res) {
     formats,
   });
 }
+
+/* ============================================================
+   Lecture paginée côté serveur (migration "classique") :
+   - GET /api/decks/search?view=events|decks&fmt=&q=&dateFrom=&dateTo=&players=&sort=&dir=&page=&limit=
+       view=decks  -> lignes decks 13 champs (main/side vides), total pour la pagination
+       view=events -> tournois agrégés {eid, fmt, name, place, date, players, decks}
+   - GET /api/decks/deck?did=123 -> 1 deck complet (13 champs avec main/side)
+   - GET /api/decks/stats?fmt=    -> agrégats {total, archetypes[], formats[]}
+   ============================================================ */
+
+const escLike = s => s.replace(/[\\%_]/g, c => '\\' + c);
+
+const SORT_DECKS = {
+  date: 'e.event_date', rank: 'd.rank', name: 'd.deck_name', arch: 'd.archetype',
+  player: 'd.player', players: 'e.players', fmt: 'd.format', evname: 'e.name',
+};
+const SORT_EVENTS = {
+  date: 'e.event_date', players: 'e.players', name: 'e.name', place: 'e.place', fmt: 'e.format',
+};
+const PLAYERS_MIN = { gt19: 19, gt49: 49, gt99: 99, gt199: 199 };
+
+/* Filtres communs decks : d.fetched=1 + fmt (liste csv) + dates ISO + players + texte */
+function filtersDecks(q) {
+  const where = ['d.fetched = 1'];
+  const args = [];
+  const fmts = String(q.fmt || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (fmts.length) { where.push('d.format IN (' + fmts.map(() => '?').join(',') + ')'); args.push(...fmts); }
+  if (q.dateFrom) { where.push('e.event_date >= ?'); args.push(String(q.dateFrom)); }
+  if (q.dateTo)   { where.push('e.event_date <= ?'); args.push(String(q.dateTo)); }
+  const pmin = PLAYERS_MIN[q.players];
+  if (pmin) { where.push('(e.players IS NULL OR e.players = 0 OR e.players > ?)'); args.push(pmin); }
+  const qs = String(q.q || '').trim().toLowerCase();
+  if (qs) {
+    const like = '%' + escLike(qs) + '%';
+    where.push("(lower(d.player) LIKE ? ESCAPE '\\' OR lower(d.deck_name) LIKE ? ESCAPE '\\' OR lower(d.archetype) LIKE ? ESCAPE '\\')");
+    args.push(like, like, like);
+  }
+  return { where: where.join(' AND '), args };
+}
+
+/* Filtres vue events : e.fetched=1 + mêmes filtres sur la table events */
+function filtersEvents(q) {
+  const where = ['e.fetched = 1'];
+  const args = [];
+  const fmts = String(q.fmt || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (fmts.length) { where.push('e.format IN (' + fmts.map(() => '?').join(',') + ')'); args.push(...fmts); }
+  if (q.dateFrom) { where.push('e.event_date >= ?'); args.push(String(q.dateFrom)); }
+  if (q.dateTo)   { where.push('e.event_date <= ?'); args.push(String(q.dateTo)); }
+  const pmin = PLAYERS_MIN[q.players];
+  if (pmin) { where.push('(e.players IS NULL OR e.players = 0 OR e.players > ?)'); args.push(pmin); }
+  const qs = String(q.q || '').trim().toLowerCase();
+  if (qs) {
+    const like = '%' + escLike(qs) + '%';
+    where.push("(lower(e.name || ' ' || e.place) LIKE ? ESCAPE '\\')");
+    args.push(like);
+  }
+  return { where: where.join(' AND '), args };
+}
+
+export function apiDecksSearch(req, res) {
+  if (!snapshotAvailable())
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
+  const q = req.query || {};
+  const c = getSnapshotDb();
+  const view = q.view === 'decks' ? 'decks' : 'events';
+  const page = Math.max(1, parseInt(q.page, 10) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(q.limit, 10) || 25));
+  const dir = q.dir === 'asc' ? 'ASC' : 'DESC';
+
+  if (view === 'decks') {
+    const { where, args } = filtersDecks(q);
+    const sortCol = SORT_DECKS[q.sort] || 'e.event_date';
+    const total = c.prepare('SELECT COUNT(*) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where).get(...args).n;
+    const rows = c.prepare('SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did LIMIT ? OFFSET ?').all(...args, limit, (page - 1) * limit);
+    return sendJson(res, 200, { ok: true, view, total, page, limit,
+      rows: rows.map(r => [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player, r.name, r.place, r.event_date, r.eid, '', '', r.players]) });
+  }
+
+  const { where, args } = filtersEvents(q);
+  const sortCol = SORT_EVENTS[q.sort] || 'e.event_date';
+  const total = c.prepare('SELECT COUNT(DISTINCT e.eid) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n;
+  const rows = c.prepare('SELECT e.eid, e.format, e.name, e.place, e.event_date, e.players, COUNT(d.did) nd FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY e.eid ORDER BY ' + sortCol + ' ' + dir + ', e.eid LIMIT ? OFFSET ?').all(...args, limit, (page - 1) * limit);
+  sendJson(res, 200, { ok: true, view: 'events', total, page, limit,
+    rows: rows.map(r => ({ eid: r.eid, fmt: r.format, name: r.name, place: r.place, date: r.event_date, players: r.players, decks: r.nd })) });
+}
+
+export function apiDecksOne(req, res) {
+  if (!snapshotAvailable())
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
+  const did = parseInt((req.query || {}).did, 10);
+  if (!did) return sendJson(res, 400, { ok: false, error: 'param did requis' });
+  const c = getSnapshotDb();
+  const r = c.prepare(`SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player,
+       e.name, e.place, e.event_date, d.eid, e.players,
+       (SELECT group_concat(qty || 'x ' || card, '||') FROM
+          (SELECT qty, card FROM deck_cards WHERE did = d.did AND board = 'main' ORDER BY qty DESC, card)) AS main,
+       (SELECT group_concat(qty || 'x ' || card, '||') FROM
+          (SELECT qty, card FROM deck_cards WHERE did = d.did AND board = 'side' ORDER BY qty DESC, card)) AS side
+    FROM decks d JOIN events e ON e.eid = d.eid
+    WHERE d.did = ? AND d.fetched = 1`).get(did);
+  if (!r) return sendJson(res, 404, { ok: false, error: 'deck introuvable (did=' + did + ')' });
+  sendJson(res, 200, { ok: true, deck: [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player,
+    r.name, r.place, r.event_date, r.eid, r.main || '', r.side || '', r.players] });
+}
+
+export function apiDecksStats(req, res) {
+  if (!snapshotAvailable())
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
+  const q = req.query || {};
+  const c = getSnapshotDb();
+  const fmt = String(q.fmt || '').trim();
+  const w = fmt ? 'WHERE fetched = 1 AND format = ?' : 'WHERE fetched = 1';
+  const args = fmt ? [fmt] : [];
+  const total = c.prepare('SELECT COUNT(*) n FROM decks ' + w).get(...args).n;
+  const archetypes = c.prepare('SELECT archetype a, COUNT(*) n FROM decks ' + w + ' GROUP BY archetype ORDER BY n DESC, a LIMIT 500').all(...args)
+    .map(r => ({ arch: r.a || '(sans archetype)', n: r.n }));
+  const formats = c.prepare('SELECT format f, COUNT(*) n FROM decks ' + w + ' GROUP BY format ORDER BY n DESC').all(...args)
+    .map(r => ({ code: r.f, n: r.n }));
+  sendJson(res, 200, { ok: true, fmt: fmt || null, total, archetypes, formats });
+}

@@ -26,6 +26,9 @@
      POST /api/scrape/one {year,format,seconds}, GET /api/scrape/grid -> scraping ciblé année x format (scrape_year.py) + grille formats x années lue dans la snapshot
      GET  /api/decks         -> dataset decks depuis mtgtop8.sqlite (JSON gzippe, cache mtime)
      GET  /api/decks/meta    -> compteurs (decks/events/cartes/max date, par format)
+     GET  /api/decks/search  -> recherche paginee : view=events|decks, fmt, q, dateFrom, dateTo, players, sort, dir, page, limit
+     GET  /api/decks/deck?did= -> 1 deck complet (13 champs, main/side)
+     GET  /api/decks/stats?fmt= -> agregats par archetype/format
    ============================================================ */
 import http from 'node:http';
 import { createApp } from './app.js';
