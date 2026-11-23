@@ -29,6 +29,7 @@
      GET  /api/decks/search  -> recherche paginee : view=events|decks, fmt, q, dateFrom, dateTo, players, sort, dir, page, limit
      GET  /api/decks/deck?did= -> 1 deck complet (13 champs, main/side)
      GET  /api/decks/stats?fmt= -> agregats par archetype/format
+     GET  /api/decks/playable -> decks jouables vs collection : scan en worker, cache par version (base + collection), 202 si build en cours
    ============================================================ */
 import http from 'node:http';
 import { createApp } from './app.js';

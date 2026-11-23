@@ -2,7 +2,7 @@ import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, frDate, CONDS, COND_LABEL, L
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
-import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+import { parseDeck, parseLists, analyzeLists, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
 import { ordOf, isoOf } from '../core/pricedb.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
@@ -455,16 +455,23 @@ function bindDeckView(container, rerender){
   const gsel = container.querySelector('#dvgroup');
   if(gsel) gsel.onchange = e => { dvGroup = e.target.value; rerender(); };
 }
-async function showDeck(i){
-  const d = DECKS[i], a = analyze(i, true);
-  const {main, side} = parseDeck(i);
-  const ev = EVENTS.find(e => e.eid===d[9]);
+function showDeck(i){
+  showDeckData(DECKS[i]);
+}
+async function showDeckByDid(did){
+  let j;
+  try{ j = await (await fetch('/api/decks/deck?did=' + encodeURIComponent(did))).json(); }catch(e){ return; }
+  if(j && j.ok && j.deck) showDeckData(j.deck);
+}
+async function showDeckData(d){
+  const {main, side} = parseLists(d[10], d[11]);
+  const a = analyzeLists(main, side, true);
   openModal(`
     <button class="close" id="mclose2">✕</button>
     <h2>${esc(d[3])}</h2>
     <p class="hint" style="margin:6px 0">
       <span class="fmt">${fmtName(d[1])}</span> ${esc(d[4]||'')} · ${esc(d[5]||'')} · #${d[2]}<br>
-      ${esc(ev?.name||'')} — ${esc(ev?.place||'')} · ${esc(d[8]||'')}</p>
+      ${esc(d[6]||'')} — ${esc(d[7]||'')} · ${esc(d[8]||'')}</p>
     <p style="margin-bottom:10px"><b>${Math.round(a.pct*100)}% possédé</b> · ${a.missingQty} cartes manquantes
       <button class="btn ghost" id="decktags" style="margin-left:10px">🧠 Métadonnées</button></p>
     <div id="tagdist"></div>
@@ -540,36 +547,35 @@ function vPlayable(app){
   bind('#p-fmt','fmt'); bind('#p-sort','sort'); bind('#p-side','withSide'); bind('#p-pct','minPct'); bind('#p-q','q');
   runPlayable(app);
 }
-function runPlayable(app){
+async function runPlayable(app){
   const box = app.querySelector('#pres');
-  const q = pf.q.toLowerCase();
-  const out = [];
-  for(let i=0;i<DECKS.length;i++){
-    const d = DECKS[i];
-    if(pf.fmt!=='ALL' && d[1]!==pf.fmt) continue;
-    if(q && !(d[3]+' '+d[4]+' '+d[5]).toLowerCase().includes(q)) continue;
-    const a = analyze(i, pf.withSide);
-    const pct = Math.round(a.pct*100);
-    if(pct < pf.minPct) continue;
-    out.push([i,d,a,pct]);
+  box.innerHTML = '<p class="hint">Analyse…</p>';
+  const params = new URLSearchParams({fmt: pf.fmt, minPct: String(pf.minPct), q: pf.q,
+    withSide: pf.withSide ? '1' : '0', sort: pf.sort, page: '1', limit: '200'});
+  let j;
+  try{ j = await (await fetch('/api/decks/playable?' + params.toString())).json(); }
+  catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/playable).</p>'; return; }
+  if(!j || !j.ok){
+    if(j && j.building){ box.innerHTML = '<p class="hint">Calcul de l\'analyse côté serveur en cours…</p>'; clearTimeout(pf._rt); pf._rt = setTimeout(() => runPlayable(app), 3000); return; }
+    box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return;
   }
-  out.sort((x,y) => pf.sort==='pct' ? (y[3]-x[3] || y[1][8].localeCompare(x[1][8]))
-    : pf.sort==='players' ? ((y[1][12]||0)-(x[1][12]||0)) : y[1][8].localeCompare(x[1][8]));
-  const n100 = out.filter(o=>o[3]===100).length;
+  const out = j.rows;   // [{did, pct, missing, d:[13 champs]}]
+  const n100 = out.filter(o => Math.round(o.pct*100) === 100).length;
   box.innerHTML = `
-  <p class="hint" style="margin-bottom:12px"><b>${out.length}</b> decks · dont <b>${n100}</b> jouables à 100%</p>
-  <div class="deck-list">${out.slice(0,120).map(([i,d,a,pct])=>`
-    <div class="deck" data-i="${i}">
+  <p class="hint" style="margin-bottom:12px"><b>${j.total}</b> decks · dont <b>${n100}</b> jouables à 100%${j.cached ? '' : ' (recalcul en cours côté serveur…)'}</p>
+  <div class="deck-list">${out.map(o => {
+    const d = o.d, pct = Math.round(o.pct*100);
+    return `<div class="deck" data-did="${o.did}">
       <h3>${esc(d[3])} ${pct===100?'✅':''}</h3>
       <div class="meta"><span class="fmt">${fmtName(d[1])}</span> ${esc(d[4]||'')} · ${esc(d[5]||'')} · #${d[2]}<br>
         ${esc(d[6])} · ${esc(d[8])}</div>
       <div class="bar"><div style="width:${pct}%;background:${pct>=95?'var(--ok)':pct>=70?'var(--warn)':'var(--bad)'}"></div></div>
       <div class="row" style="justify-content:space-between">
         <b style="color:${pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--accent)'}">${pct}%</b>
-        <span class="missing">${a.missingQty} manquantes</span></div>
-    </div>`).join('')}</div>
-  ${out.length>120?'<p class="hint" style="margin-top:10px">120 meilleurs résultats affichés.</p>':''}`;
-  box.querySelectorAll('.deck').forEach(el => el.onclick = () => showDeck(+el.dataset.i));
+        <span class="missing">${o.missing} manquantes</span></div>
+    </div>`;}).join('')}</div>
+  ${j.total > out.length ? `<p class="hint" style="margin-top:10px">${out.length} meilleurs résultats affichés sur ${j.total}.</p>` : ''}`;
+  box.querySelectorAll('.deck').forEach(el => el.onclick = () => showDeckByDid(+el.dataset.did));
 }
 
 /* ============================================================
@@ -637,5 +643,6 @@ R.views.decks = vDecks;   // le burger rouvre la liste des tournois (état des f
 R.views.playable = vPlayable;
 R.views.archetypes = a => { ar.arch = null; vArchetypes(a); };
 R.showDeck = showDeck;
+R.showDeckByDid = showDeckByDid;
 
-export { vDecks, analyzeList, gatherMeta, metaOf, typeBucket, groupCards, manaCurve, costColors, landProduces, deckLegalities, deckViewHTML, drawDeckCharts, bindDeckView, showDeck, hydrateImage, deckTagDistribution, vPlayable, runPlayable, vArchetypes, vArchetypeAnalysis, dvGroup, TYPE_ORDER, LEGAL_FMTS, pf, ar, archSide };
+export { vDecks, analyzeList, gatherMeta, metaOf, typeBucket, groupCards, manaCurve, costColors, landProduces, deckLegalities, deckViewHTML, drawDeckCharts, bindDeckView, showDeck, showDeckByDid, showDeckData, hydrateImage, deckTagDistribution, vPlayable, runPlayable, vArchetypes, vArchetypeAnalysis, dvGroup, TYPE_ORDER, LEGAL_FMTS, pf, ar, archSide };

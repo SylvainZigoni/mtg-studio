@@ -30,3 +30,26 @@ export function dataMtimeMs() {
   }
   return m;
 }
+
+/* normalisation identique au client js/core/util.js norm() (sans suppression d'accents par NFD :
+   le client strippe tout ce qui n'est pas [a-z0-9 ] après lowercasing) */
+export function normName(s) {
+  return String(s || '').toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/g, '').replace(/ \/\/.*/, '').trim();
+}
+
+/* collection mtg_data.db -> Map(norm -> qté totale, toutes finitions sommées comme côté client) */
+export function collectionQtyMap() {
+  let arr = [];
+  try {
+    const row = getDb().prepare("SELECT v FROM state WHERE k='mtg_collection'").get();
+    const p = row ? JSON.parse(row.v) : null;
+    arr = Array.isArray(p) ? p : (p && Array.isArray(p.entries) ? p.entries : []);
+  } catch {}
+  const m = new Map();
+  for (const e of arr) {
+    if (!e || !e.qty) continue;
+    const k = e.norm || normName(e.name);
+    m.set(k, (m.get(k) || 0) + (+e.qty || 0));
+  }
+  return m;
+}

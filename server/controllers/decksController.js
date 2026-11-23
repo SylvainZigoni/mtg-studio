@@ -5,6 +5,12 @@ import fs from 'node:fs';
 import zlib from 'node:zlib';
 import { sendJson } from '../utils/http.js';
 import { SNAPSHOT_DB, snapshotAvailable, getSnapshotDb } from '../utils/snapshotDb.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
+import { dataMtimeMs, normName } from '../utils/db.js';
+import { DB_PATH } from '../utils/paths.js';
+import { playableVersion, buildPlayable } from '../utils/playable.js';
 
 let cache = null; // { mtimeMs, buf }
 
@@ -195,4 +201,75 @@ export function apiDecksStats(req, res) {
   const formats = c.prepare('SELECT format f, COUNT(*) n FROM decks ' + w + ' GROUP BY format ORDER BY n DESC').all(...args)
     .map(r => ({ code: r.f, n: r.n }));
   sendJson(res, 200, { ok: true, fmt: fmt || null, total, archetypes, formats });
+}
+
+
+/* ============================================================
+   GET /api/decks/playable — decks "jouables" vs collection, calculés
+   CÔTÉ SERVEUR dans un worker (le serveur reste réactif pendant le scan).
+   Cache : clé = COUNT/MAX(did) de mtgtop8.sqlite + dataMtimeMs() (collection).
+   - clé à jour        -> on sert le cache (cached:true)
+   - clé changée       -> on sert le cache courant (stale:true) + rebuild en worker
+   - aucun cache       -> 202 {building:true}, le client réessaie
+   Params : fmt=ALL|CODE & minPct=0..100 & q= & withSide=1 & sort=pct|date|players & page= & limit=
+   Réponse : { ok, total, page, limit, cached, stale, builtAt, rows:[{did, pct, missing, d:[13 champs]}] }
+   ============================================================ */
+
+let playableCache = null;   // { key, builtAt, list }
+let playableWorker = null;
+
+function requestPlayableBuild(key) {
+  if (playableWorker) return;                       // un build est déjà en cours
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const w = new Worker(path.join(dir, '../utils/playableWorker.js'), {
+    workerData: { SNAPSHOT_DB, DB_PATH, key },
+  });
+  playableWorker = w;
+  w.on('message', m => {
+    playableWorker = null;
+    if (m.error) { console.error('[playable] build erreur:', m.error); return; }
+    playableCache = { key: m.key, builtAt: m.builtAt, list: m.list };
+  });
+  w.on('error', e => { console.error('[playable] worker erreur:', e); playableWorker = null; });
+  w.on('exit', () => { playableWorker = null; });
+}
+
+export function apiDecksPlayable(req, res) {
+  if (!snapshotAvailable())
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
+  const q = req.query || {};
+  const c = getSnapshotDb();
+  const key = playableVersion(c, dataMtimeMs());
+  const hit = !!(playableCache && playableCache.key === key);
+  if (!hit) requestPlayableBuild(key);
+  if (!playableCache)
+    return sendJson(res, 202, { ok: false, building: true, error: 'analyse en cours de calcul côté serveur — réessayez dans quelques secondes' });
+  const list = playableCache.list;
+
+  const fmt = String(q.fmt || '').trim();
+  const minPct = Math.max(0, Math.min(1, (parseInt(q.minPct, 10) || 0) / 100));
+  const withSide = q.withSide === '1' || q.withSide === 'true';
+  const qn = normName(q.q || '');
+  const sort = q.sort || 'pct';
+  const page = Math.max(1, parseInt(q.page, 10) || 1);
+  const limit = Math.min(500, Math.max(1, parseInt(q.limit, 10) || 200));
+
+  const out = [];
+  for (const r of list) {
+    if (fmt && fmt !== 'ALL' && r.fmt !== fmt) continue;
+    if (qn && !(normName(r.name) + ' ' + normName(r.arch) + ' ' + normName(r.player)).includes(qn)) continue;
+    const pct = withSide ? r.pctSide : r.pct;
+    if (pct < minPct) continue;
+    out.push({ r, pct });
+  }
+  if (sort === 'players') out.sort((a, b) => ((b.r.players || 0) - (a.r.players || 0)) || (b.pct - a.pct));
+  else if (sort === 'date') out.sort((a, b) => String(b.r.date || '').localeCompare(String(a.r.date || '')) || (b.pct - a.pct));
+  else out.sort((a, b) => (b.pct - a.pct) || String(b.r.date || '').localeCompare(String(a.r.date || '')));
+
+  const total = out.length;
+  const rows = out.slice((page - 1) * limit, page * limit).map(o => ({
+    did: o.r.did, pct: o.pct, missing: withSide ? o.r.missingSide : o.r.missing,
+    d: [o.r.did, o.r.fmt, o.r.rank, o.r.name, o.r.arch, o.r.player, o.r.evname, o.r.place, o.r.date, o.r.eid, '', '', o.r.players],
+  }));
+  sendJson(res, 200, { ok: true, total, page, limit, cached: hit, stale: !hit, builtAt: playableCache.builtAt, rows });
 }
