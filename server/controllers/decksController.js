@@ -79,6 +79,7 @@ export function apiDecksMeta(req, res) {
     events: one('SELECT COUNT(DISTINCT eid) n FROM decks WHERE fetched=1'),
     cards: one('SELECT COUNT(*) n FROM deck_cards'),
     maxDate: one('SELECT MAX(event_date) n FROM events WHERE fetched=1'),
+    minDate: one('SELECT MIN(event_date) n FROM events WHERE fetched=1'),
     formats,
   });
 }
@@ -119,6 +120,12 @@ function filtersDecks(q) {
     where.push("(lower(d.player) LIKE ? ESCAPE '\\' OR lower(d.deck_name) LIKE ? ESCAPE '\\' OR lower(d.archetype) LIKE ? ESCAPE '\\')");
     args.push(like, like, like);
   }
+  if (q.eid) { where.push('d.eid = ?'); args.push(parseInt(q.eid, 10) || 0); }
+  const arch = String(q.arch || '').trim();
+  if (arch) {
+    if (arch === '(sans archétype)') where.push("(d.archetype IS NULL OR d.archetype = '')");
+    else { where.push('lower(d.archetype) = lower(?)'); args.push(arch); }
+  }
   return { where: where.join(' AND '), args };
 }
 
@@ -155,16 +162,22 @@ export function apiDecksSearch(req, res) {
     const { where, args } = filtersDecks(q);
     const sortCol = SORT_DECKS[q.sort] || 'e.event_date';
     const total = c.prepare('SELECT COUNT(*) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where).get(...args).n;
+    const eventsTotal = c.prepare('SELECT COUNT(DISTINCT d.eid) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where).get(...args).n;
+    const archs = c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
+      .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n }));
     const rows = c.prepare('SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did LIMIT ? OFFSET ?').all(...args, limit, (page - 1) * limit);
-    return sendJson(res, 200, { ok: true, view, total, page, limit,
+    return sendJson(res, 200, { ok: true, view, total, eventsTotal, archs, page, limit,
       rows: rows.map(r => [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player, r.name, r.place, r.event_date, r.eid, '', '', r.players]) });
   }
 
   const { where, args } = filtersEvents(q);
   const sortCol = SORT_EVENTS[q.sort] || 'e.event_date';
   const total = c.prepare('SELECT COUNT(DISTINCT e.eid) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n;
+  const decksTotal = c.prepare('SELECT COUNT(d.did) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n;
+  const archs = c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
+    .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n }));
   const rows = c.prepare('SELECT e.eid, e.format, e.name, e.place, e.event_date, e.players, COUNT(d.did) nd FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY e.eid ORDER BY ' + sortCol + ' ' + dir + ', e.eid LIMIT ? OFFSET ?').all(...args, limit, (page - 1) * limit);
-  sendJson(res, 200, { ok: true, view: 'events', total, page, limit,
+  sendJson(res, 200, { ok: true, view: 'events', total, decksTotal, archs, page, limit,
     rows: rows.map(r => ({ eid: r.eid, fmt: r.format, name: r.name, place: r.place, date: r.event_date, players: r.players, decks: r.nd })) });
 }
 
@@ -272,4 +285,53 @@ export function apiDecksPlayable(req, res) {
     d: [o.r.did, o.r.fmt, o.r.rank, o.r.name, o.r.arch, o.r.player, o.r.evname, o.r.place, o.r.date, o.r.eid, '', '', o.r.players],
   }));
   sendJson(res, 200, { ok: true, total, page, limit, cached: hit, stale: !hit, builtAt: playableCache.builtAt, rows });
+}
+
+/* ============================================================
+   GET /api/decks/arch?fmt=CODE&arch=LABEL[&side=1][&limit=200]
+     -> analyse d'inclusion d'un archétype : total de decks + cartes agrégées
+        {card, decks (nb de decks contenant la carte), qty (exemplaires totaux)}
+   GET /api/decks/topcards?fmt=CODE[&dateFrom=][&dateTo=][&limit=24]
+     -> cartes les plus jouées (main) sur la période : {totalDecks, cards:[{card, qty}]}
+   ============================================================ */
+
+export function apiDecksArch(req, res) {
+  if (!snapshotAvailable())
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
+  const q = req.query || {};
+  const c = getSnapshotDb();
+  const fmt = String(q.fmt || '').trim();
+  if (!fmt) return sendJson(res, 400, { ok: false, error: 'param fmt requis' });
+  const arch = String(q.arch || '');
+  const side = q.side === '1';
+  let archSql = '', archArgs = [];
+  if (arch === '(sans archétype)') archSql = "AND (d.archetype IS NULL OR d.archetype = '')";
+  else if (arch) { archSql = 'AND lower(d.archetype) = lower(?)'; archArgs = [arch]; }
+  const boards = side ? "('main','side')" : "('main')";
+  const total = c.prepare('SELECT COUNT(*) n FROM decks d WHERE d.fetched = 1 AND d.format = ? ' + archSql).get(fmt, ...archArgs).n;
+  const cards = c.prepare('SELECT c.card card, COUNT(DISTINCT c.did) decks, SUM(c.qty) qty FROM deck_cards c JOIN decks d ON d.did = c.did WHERE d.fetched = 1 AND d.format = ? AND c.board IN ' + boards + ' ' + archSql + ' GROUP BY c.card ORDER BY decks DESC, qty DESC LIMIT 200')
+    .all(fmt, ...archArgs)
+    .map(r => ({ card: r.card, decks: r.decks, qty: r.qty }));
+  sendJson(res, 200, { ok: true, fmt, arch: arch || null, side, total, cards });
+}
+
+export function apiDecksTopCards(req, res) {
+  if (!snapshotAvailable())
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
+  const q = req.query || {};
+  const c = getSnapshotDb();
+  const dw = ['d.fetched = 1'], dargs = [];
+  if (q.fmt) { dw.push('d.format = ?'); dargs.push(String(q.fmt)); }
+  if (q.dateFrom) { dw.push('e.event_date >= ?'); dargs.push(String(q.dateFrom)); }
+  if (q.dateTo) { dw.push('e.event_date <= ?'); dargs.push(String(q.dateTo)); }
+  const totalDecks = c.prepare('SELECT COUNT(*) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + dw.join(' AND ')).get(...dargs).n;
+  const where = ["c.board = 'main'"], args = [];
+  if (q.fmt) { where.push('d.format = ?'); args.push(String(q.fmt)); }
+  if (q.dateFrom) { where.push('e.event_date >= ?'); args.push(String(q.dateFrom)); }
+  if (q.dateTo) { where.push('e.event_date <= ?'); args.push(String(q.dateTo)); }
+  const limit = Math.min(200, Math.max(1, parseInt(q.limit, 10) || 24));
+  const cards = c.prepare('SELECT c.card card, SUM(c.qty) qty FROM deck_cards c JOIN decks d ON d.did = c.did JOIN events e ON e.eid = d.eid WHERE ' + where.join(' AND ') + ' GROUP BY c.card ORDER BY qty DESC LIMIT ?')
+    .all(...args, limit)
+    .map(r => ({ card: r.card, qty: r.qty }));
+  sendJson(res, 200, { ok: true, totalDecks, cards });
 }

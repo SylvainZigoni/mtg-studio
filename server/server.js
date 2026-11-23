@@ -30,6 +30,8 @@
      GET  /api/decks/deck?did= -> 1 deck complet (13 champs, main/side)
      GET  /api/decks/stats?fmt= -> agregats par archetype/format
      GET  /api/decks/playable -> decks jouables vs collection : scan en worker, cache par version (base + collection), 202 si build en cours
+     GET  /api/decks/arch?fmt=&arch=[&side=1] -> analyse d'inclusion d'un archetype (cartes agregees)
+     GET  /api/decks/topcards?fmt=&dateFrom=&dateTo=&limit= -> cartes les plus jourees d'un format sur une periode
    ============================================================ */
 import http from 'node:http';
 import { createApp } from './app.js';
