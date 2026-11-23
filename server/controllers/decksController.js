@@ -1,9 +1,9 @@
-/* Dataset decks MTGTop8 servi depuis la snapshot SQLite (GET /api/decks) :
-   construit une fois, gzippe en memoire, cache invalide sur le mtime du .sqlite.
-   Format de sortie identique a l'ancien decks.json.gz (tableau de 13 champs, voir js/core/decks.js). */
-import fs from 'node:fs';
-import zlib from 'node:zlib';
-import { sendJson } from '../utils/http.js';
+/* Endpoints decks MTGTop8 servis depuis la snapshot SQLite (readOnly) :
+   /api/decks/search (paginé ; FTS5 trigram pour q >= 3 cars ; cache des COUNT par version
+   de la base ; pagination keyset en tri date via afterDate/afterId),
+   /api/decks/deck?did=, /api/decks/meta, /api/decks/stats, /api/decks/playable (worker + cache),
+   /api/decks/arch, /api/decks/topcards. */
+import { sendJson} from '../utils/http.js';
 import { SNAPSHOT_DB, snapshotAvailable, getSnapshotDb } from '../utils/snapshotDb.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,48 +11,6 @@ import { Worker } from 'node:worker_threads';
 import { dataMtimeMs, normName } from '../utils/db.js';
 import { DB_PATH } from '../utils/paths.js';
 import { playableVersion, buildPlayable } from '../utils/playable.js';
-
-let cache = null; // { mtimeMs, buf }
-
-const SQL_DECKS = `SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player,
-       e.name, e.place, e.event_date, d.eid, e.players,
-       (SELECT group_concat(qty || 'x ' || card, '||') FROM
-          (SELECT qty, card FROM deck_cards WHERE did = d.did AND board = 'main' ORDER BY qty DESC, card)) AS main,
-       (SELECT group_concat(qty || 'x ' || card, '||') FROM
-          (SELECT qty, card FROM deck_cards WHERE did = d.did AND board = 'side' ORDER BY qty DESC, card)) AS side
-  FROM decks d JOIN events e ON e.eid = d.eid
-  WHERE d.fetched = 1
-  ORDER BY e.event_date DESC, d.rank, d.did`;
-
-function buildGzip() {
-  const c = getSnapshotDb();
-  const rows = c.prepare(SQL_DECKS).all();
-  const out = rows.map(r => [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player,
-    r.name, r.place, r.event_date, r.eid, r.main || '', r.side || '', r.players]);
-  return zlib.gzipSync(Buffer.from(JSON.stringify(out), 'utf8'), { level: 6 });
-}
-
-/* GET /api/decks — dataset complet ; Content-Encoding: gzip, le navigateur decompresse seul. */
-export function apiDecks(req, res) {
-  if (!snapshotAvailable())
-    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
-  const st = fs.statSync(SNAPSHOT_DB);
-  const lm = new Date(st.mtimeMs).toUTCString();
-  if (req.headers['if-modified-since'] &&
-      new Date(req.headers['if-modified-since']).getTime() >= Math.floor(st.mtimeMs / 1000) * 1000) {
-    res.writeHead(304, { 'Last-Modified': lm, 'Cache-Control': 'no-cache' });
-    return res.end();
-  }
-  if (!cache || cache.mtimeMs !== st.mtimeMs) cache = { mtimeMs: st.mtimeMs, buf: buildGzip() };
-  res.writeHead(200, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Encoding': 'gzip',
-    'Content-Length': cache.buf.length,
-    'Last-Modified': lm,
-    'Cache-Control': 'no-cache',
-  });
-  res.end(cache.buf);
-}
 
 /* GET /api/decks/meta — compteurs pour le loader et le panneau de scraping. */
 export function apiDecksMeta(req, res) {
@@ -104,8 +62,34 @@ const SORT_EVENTS = {
 };
 const PLAYERS_MIN = { gt19: 19, gt49: 49, gt99: 99, gt199: 199 };
 
-/* Filtres communs decks : d.fetched=1 + fmt (liste csv) + dates ISO + players + texte */
-function filtersDecks(q) {
+/* ---------- recherche paginée : filtres, cache des COUNT, keyset date ---------- */
+
+/* cache des agrégats (total, eventsTotal/decksTotal, archs) : clé = requête, invalidé
+   quand la version logique de la base (COUNT|MAX(did) de decks) change */
+const searchCountCache = new Map(); // cle -> { ver, data } ; plafond 300 entrées
+function decksVersion(c) {
+  const v = c.prepare('SELECT COUNT(*) n, MAX(did) m FROM decks').get();
+  return v.n + '|' + v.m;
+}
+function cachedCounts(c, key, build) {
+  const ver = decksVersion(c);
+  const hit = searchCountCache.get(key);
+  if (hit && hit.ver === ver) return hit.data;
+  const data = build();
+  if (searchCountCache.size > 300) searchCountCache.delete(searchCountCache.keys().next().value);
+  searchCountCache.set(key, { ver, data });
+  return data;
+}
+
+/* Filtres decks. q >= 3 caractères -> FTS5 trigram (decks_fts, LIKE insensible à la casse
+   grâce au tokenizeur trigram) ; q < 3 caractères -> LIKE classique sur decks.
+   Renvoie { from, where, args }. idcol = colonne de tiebreak du keyset. */
+function filtersDecks(q, idcol) {
+  const qs = String(q.q || '').trim();
+  const useFts = qs.length >= 3;
+  const from = useFts
+    ? 'decks_fts f JOIN decks d ON d.did = f.rowid JOIN events e ON e.eid = d.eid'
+    : 'decks d JOIN events e ON e.eid = d.eid';
   const where = ['d.fetched = 1'];
   const args = [];
   const fmts = String(q.fmt || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -114,10 +98,10 @@ function filtersDecks(q) {
   if (q.dateTo)   { where.push('e.event_date <= ?'); args.push(String(q.dateTo)); }
   const pmin = PLAYERS_MIN[q.players];
   if (pmin) { where.push('(e.players IS NULL OR e.players = 0 OR e.players > ?)'); args.push(pmin); }
-  const qs = String(q.q || '').trim().toLowerCase();
   if (qs) {
     const like = '%' + escLike(qs) + '%';
-    where.push("(lower(d.player) LIKE ? ESCAPE '\\' OR lower(d.deck_name) LIKE ? ESCAPE '\\' OR lower(d.archetype) LIKE ? ESCAPE '\\')");
+    if (useFts) where.push('(f.player LIKE ? OR f.deck_name LIKE ? OR f.archetype LIKE ?)');
+    else where.push("(lower(d.player) LIKE ? ESCAPE '\\' OR lower(d.deck_name) LIKE ? ESCAPE '\\' OR lower(d.archetype) LIKE ? ESCAPE '\\')");
     args.push(like, like, like);
   }
   if (q.eid) { where.push('d.eid = ?'); args.push(parseInt(q.eid, 10) || 0); }
@@ -126,10 +110,15 @@ function filtersDecks(q) {
     if (arch === '(sans archétype)') where.push("(d.archetype IS NULL OR d.archetype = '')");
     else { where.push('lower(d.archetype) = lower(?)'); args.push(arch); }
   }
-  return { where: where.join(' AND '), args };
+  if (q.afterDate) {   // keyset tri date : on ignore OFFSET, curseur sur (event_date, idcol)
+    const op = q.dir === 'asc' ? '>' : '<';
+    where.push('(e.event_date ' + op + ' ? OR (e.event_date = ? AND ' + idcol + ' ' + op + ' ?))');
+    args.push(String(q.afterDate), String(q.afterDate), parseInt(q.afterId, 10) || 0);
+  }
+  return { from, where: where.join(' AND '), args };
 }
 
-/* Filtres vue events : e.fetched=1 + mêmes filtres sur la table events */
+/* Filtres vue events : e.fetched=1 + mêmes filtres sur la table events (+ keyset sur e.eid) */
 function filtersEvents(q) {
   const where = ['e.fetched = 1'];
   const args = [];
@@ -145,6 +134,11 @@ function filtersEvents(q) {
     where.push("(lower(e.name || ' ' || e.place) LIKE ? ESCAPE '\\')");
     args.push(like);
   }
+  if (q.afterDate) {
+    const op = q.dir === 'asc' ? '>' : '<';
+    where.push('(e.event_date ' + op + ' ? OR (e.event_date = ? AND e.eid ' + op + ' ?))');
+    args.push(String(q.afterDate), String(q.afterDate), parseInt(q.afterId, 10) || 0);
+  }
   return { where: where.join(' AND '), args };
 }
 
@@ -157,27 +151,36 @@ export function apiDecksSearch(req, res) {
   const page = Math.max(1, parseInt(q.page, 10) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(q.limit, 10) || 25));
   const dir = q.dir === 'asc' ? 'ASC' : 'DESC';
+  const keyset = !!q.afterDate;
 
   if (view === 'decks') {
-    const { where, args } = filtersDecks(q);
+    const { from, where, args } = filtersDecks(q, 'd.did');
     const sortCol = SORT_DECKS[q.sort] || 'e.event_date';
-    const total = c.prepare('SELECT COUNT(*) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where).get(...args).n;
-    const eventsTotal = c.prepare('SELECT COUNT(DISTINCT d.eid) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where).get(...args).n;
-    const archs = c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
-      .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n }));
-    const rows = c.prepare('SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players FROM decks d JOIN events e ON e.eid = d.eid WHERE ' + where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did LIMIT ? OFFSET ?').all(...args, limit, (page - 1) * limit);
-    return sendJson(res, 200, { ok: true, view, total, eventsTotal, archs, page, limit,
+    const ck = 'decks|' + from + '|' + where + '|' + args.map(String).join('|');
+    const counts = cachedCounts(c, ck, () => ({
+      total: c.prepare('SELECT COUNT(*) n FROM ' + from + ' WHERE ' + where).get(...args).n,
+      eventsTotal: c.prepare('SELECT COUNT(DISTINCT d.eid) n FROM ' + from + ' WHERE ' + where).get(...args).n,
+      archs: c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM ' + from + ' WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
+        .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n })),
+    }));
+    const rows = c.prepare('SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players FROM ' + from + ' WHERE ' + where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
+      .all(...args, limit, ...(keyset ? [] : [(page - 1) * limit]));
+    return sendJson(res, 200, { ok: true, view, total: counts.total, eventsTotal: counts.eventsTotal, archs: counts.archs, page, limit,
       rows: rows.map(r => [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player, r.name, r.place, r.event_date, r.eid, '', '', r.players]) });
   }
 
   const { where, args } = filtersEvents(q);
   const sortCol = SORT_EVENTS[q.sort] || 'e.event_date';
-  const total = c.prepare('SELECT COUNT(DISTINCT e.eid) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n;
-  const decksTotal = c.prepare('SELECT COUNT(d.did) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n;
-  const archs = c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
-    .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n }));
-  const rows = c.prepare('SELECT e.eid, e.format, e.name, e.place, e.event_date, e.players, COUNT(d.did) nd FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY e.eid ORDER BY ' + sortCol + ' ' + dir + ', e.eid LIMIT ? OFFSET ?').all(...args, limit, (page - 1) * limit);
-  sendJson(res, 200, { ok: true, view: 'events', total, decksTotal, archs, page, limit,
+  const ck = 'events|' + where + '|' + args.map(String).join('|');
+  const counts = cachedCounts(c, ck, () => ({
+    total: c.prepare('SELECT COUNT(DISTINCT e.eid) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n,
+    decksTotal: c.prepare('SELECT COUNT(d.did) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n,
+    archs: c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
+      .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n })),
+  }));
+  const rows = c.prepare('SELECT e.eid, e.format, e.name, e.place, e.event_date, e.players, COUNT(d.did) nd FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY e.eid ORDER BY ' + sortCol + ' ' + dir + ', e.eid ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
+    .all(...args, limit, ...(keyset ? [] : [(page - 1) * limit]));
+  sendJson(res, 200, { ok: true, view: 'events', total: counts.total, decksTotal: counts.decksTotal, archs: counts.archs, page, limit,
     rows: rows.map(r => ({ eid: r.eid, fmt: r.format, name: r.name, place: r.place, date: r.event_date, players: r.players, decks: r.nd })) });
 }
 

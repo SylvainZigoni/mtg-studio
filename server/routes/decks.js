@@ -1,4 +1,4 @@
-import { apiDecks, apiDecksMeta, apiDecksSearch, apiDecksOne, apiDecksStats, apiDecksPlayable, apiDecksArch, apiDecksTopCards } from '../controllers/decksController.js';
+import { apiDecksMeta, apiDecksSearch, apiDecksOne, apiDecksStats, apiDecksPlayable, apiDecksArch, apiDecksTopCards } from '../controllers/decksController.js';
 
 export function registerDecksRoutes(app) {
   app.get('/api/decks/meta', apiDecksMeta);
@@ -8,5 +8,4 @@ export function registerDecksRoutes(app) {
   app.get('/api/decks/arch', apiDecksArch);
   app.get('/api/decks/topcards', apiDecksTopCards);
   app.get('/api/decks/deck', apiDecksOne);
-  app.get('/api/decks', apiDecks);
 }

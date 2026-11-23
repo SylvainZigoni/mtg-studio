@@ -32,7 +32,7 @@ const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb jou
 const T8_PCOLS = [['player','Nom'],['date','Date'],['fmt','Format'],['evname','Nom du tournoi'],['deck','Deck joué'],['rank','Rang'],['players','Joueurs']];
 const T8_PCOLW = [14, 12, 8, 30, 20, 6, 10];   // % : nom, date, format, tournoi, deck, rang, joueurs
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
-let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', page:1, open:new Set(), _rt:null };
+let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', page:1, cursors:[], open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
 let t8Bounds = null;    // bornes (ordinaux de jours) des dates d'events
 let ddCloseBound = false;
@@ -68,6 +68,10 @@ async function t8fetch(){
   q.set('dir', t8.sortDir);
   q.set('page', String(t8.page||1));
   q.set('limit', '25');
+  if(t8.sortCol==='date'){   // keyset : curseur = dernière ligne de la page précédente
+    const cur = t8.cursors[t8.page-2];
+    if(cur){ const cp = cur.split('|'); q.set('afterDate', cp[0]); q.set('afterId', cp[1]); }
+  }
   const r = await fetch('/api/decks/search?' + q.toString());
   return await r.json();
 }
@@ -135,18 +139,18 @@ async function vDecks(app){
     if(!fmtall.checked) return;
     t8.fmts = [];
     app.querySelectorAll('.fmtchk').forEach(c => c.checked = false);
-    syncFmt(); t8.page = 1; renderT8Results(app);
+    syncFmt(); t8.page = 1; t8.cursors = []; renderT8Results(app);
   };
   app.querySelectorAll('.fmtchk').forEach(c => c.onchange = () => {
     t8.fmts = [...app.querySelectorAll('.fmtchk:checked')].map(x => x.value);
-    syncFmt(); t8.page = 1; renderT8Results(app);
+    syncFmt(); t8.page = 1; t8.cursors = []; renderT8Results(app);
   });
-  app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; t8.page = 1; renderT8Results(app); };
+  app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; t8.page = 1; t8.cursors = []; renderT8Results(app); };
   app.querySelectorAll('.t8radio').forEach(r => r.onchange = () => { t8.mode = r.value; t8.q = ''; vDecks(app); });
   ['ev','pl'].forEach(m => {
     const inp = app.querySelector('#t8q-'+m), go = app.querySelector('#t8go-'+m);
     if(!inp || !go) return;
-    const doQ = () => { t8.q = inp.value.trim(); t8.page = 1; renderT8Results(app); };
+    const doQ = () => { t8.q = inp.value.trim(); t8.page = 1; t8.cursors = []; renderT8Results(app); };
     go.onclick = doQ;
     inp.onkeydown = e => { if(e.key==='Enter') doQ(); };
   });
@@ -162,7 +166,7 @@ async function vDecks(app){
     evmin.max = evmax.value; evmax.min = evmin.value;
     labs();
     clearTimeout(t8._rt);
-    t8._rt = setTimeout(() => { t8.dateFrom = +evmin.value; t8.dateTo = +evmax.value; t8.page = 1; renderT8Results(app); }, 250);
+    t8._rt = setTimeout(() => { t8.dateFrom = +evmin.value; t8.dateTo = +evmax.value; t8.page = 1; t8.cursors = []; renderT8Results(app); }, 250);
   };
   evmin.oninput = onrange; evmax.oninput = onrange;
   labs();
@@ -197,11 +201,13 @@ async function renderT8Results(app){
     <span class="hint">Page ${j.page}/${pages} · ${total} résultats</span>
     <button class="btn ghost" id="pgnext" ${j.page>=pages?'disabled':''}>Suivant →</button>
   </div>`;
+  { const lr = j.rows[j.rows.length-1];   // curseur keyset = dernière ligne de la page
+    if(lr){ t8.cursors[t8.page-1] = t8.mode==='pl' ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
     else { t8.sortCol = c; t8.sortDir = c==='date' ? 'desc' : 'asc'; }
-    t8.page = 1; renderT8Results(app);
+    t8.page = 1; t8.cursors = []; renderT8Results(app);
   });
   const pgp = box.querySelector('#pgprev'), pgn = box.querySelector('#pgnext');
   if(pgp) pgp.onclick = () => { if(t8.page > 1){ t8.page--; renderT8Results(app); } };
@@ -264,11 +270,13 @@ async function renderT8Player(app){
     <span class="hint">Page ${j.page}/${pages} · ${total} résultats</span>
     <button class="btn ghost" id="pgnext" ${j.page>=pages?'disabled':''}>Suivant →</button>
   </div>`;
+  { const lr = j.rows[j.rows.length-1];   // curseur keyset = dernière ligne de la page
+    if(lr){ t8.cursors[t8.page-1] = t8.mode==='pl' ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
     else { t8.sortCol = c; t8.sortDir = c==='date' ? 'desc' : 'asc'; }
-    t8.page = 1; renderT8Results(app);
+    t8.page = 1; t8.cursors = []; renderT8Results(app);
   });
   const pgp = box.querySelector('#pgprev'), pgn = box.querySelector('#pgnext');
   if(pgp) pgp.onclick = () => { if(t8.page > 1){ t8.page--; renderT8Results(app); } };

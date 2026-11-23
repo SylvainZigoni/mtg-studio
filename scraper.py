@@ -60,7 +60,29 @@ def db():
       PRIMARY KEY (did, board, card));
     CREATE INDEX IF NOT EXISTS ix_decks_eid ON decks(eid);
     CREATE INDEX IF NOT EXISTS ix_cards_did ON deck_cards(did);
+    CREATE INDEX IF NOT EXISTS ix_events_date ON events(event_date);
+    CREATE INDEX IF NOT EXISTS ix_decks_format ON decks(format);
+    CREATE VIRTUAL TABLE IF NOT EXISTS decks_fts USING fts5(
+      player, deck_name, archetype, tokenize='trigram', content='decks', content_rowid='did');
+    CREATE TRIGGER IF NOT EXISTS decks_fts_ai AFTER INSERT ON decks BEGIN
+      INSERT INTO decks_fts(rowid, player, deck_name, archetype)
+      VALUES (new.did, COALESCE(new.player,''), COALESCE(new.deck_name,''), COALESCE(new.archetype,''));
+    END;
+    CREATE TRIGGER IF NOT EXISTS decks_fts_ad AFTER DELETE ON decks BEGIN
+      INSERT INTO decks_fts(decks_fts, rowid, player, deck_name, archetype)
+      VALUES('delete', old.did, old.player, old.deck_name, old.archetype);
+    END;
+    CREATE TRIGGER IF NOT EXISTS decks_fts_au AFTER UPDATE ON decks BEGIN
+      INSERT INTO decks_fts(decks_fts, rowid, player, deck_name, archetype)
+      VALUES('delete', old.did, old.player, old.deck_name, old.archetype);
+      INSERT INTO decks_fts(rowid, player, deck_name, archetype)
+      VALUES (new.did, COALESCE(new.player,''), COALESCE(new.deck_name,''), COALESCE(new.archetype,''));
+    END;
     """)
+    # backfill one-shot de la FTS si la table vient d'etre creee sur une base deja remplie
+    if c.execute('PRAGMA user_version').fetchone()[0] < 1:
+        c.execute("INSERT INTO decks_fts(rowid, player, deck_name, archetype) SELECT did, COALESCE(player,''), COALESCE(deck_name,''), COALESCE(archetype,'') FROM decks")
+        c.execute('PRAGMA user_version=1')
     return c
 
 def parse_event_rows(h):
