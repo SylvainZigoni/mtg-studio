@@ -72,17 +72,15 @@ function vStatsColl(app){
   const runOwned = () => {
     const box = app.querySelector('#scowned');
     const f = scF.fmt, from = scF.from, to = scF.to;
-    const counts = new Map();
-    DECKS.forEach(d => {
-      if(d[1] !== f) return;
-      if(from && (d[8]||'') < from) return;
-      if(to && (d[8]||'') > to) return;
-      const {main} = parseDeck(DECKS.indexOf(d));
-      main.forEach(([n,q]) => counts.set(n, (counts.get(n)||0) + q));
-    });
-    const top = [...counts.entries()].sort((a,b) => b[1]-a[1]).slice(0, +scF.ntop || 24);
-    const totalDecks = DECKS.filter(d => d[1] === f && (!from || (d[8]||'') >= from) && (!to || (d[8]||'') <= to)).length;
-    box.innerHTML = !top.length ? '<p class="hint">Aucun deck sur cette période.</p>' : `
+    const q = new URLSearchParams({fmt: f, limit: String(+scF.ntop || 24)});
+    if(from) q.set('dateFrom', from);
+    if(to) q.set('dateTo', to);
+    box.innerHTML = '<p class="hint">Chargement…</p>';
+    fetch('/api/decks/topcards?' + q.toString()).then(r => r.json()).then(j => {
+      if(!j || !j.ok){ box.innerHTML = '<p class="hint">⚠ indisponible</p>'; return; }
+      const top = j.cards.map(c => [c.card, c.qty]);
+      const totalDecks = j.totalDecks;
+      box.innerHTML = !top.length ? '<p class="hint">Aucun deck sur cette période.</p>' : `
       <p class="hint">${totalDecks} decks ${fmtName(f)}${from||to?` entre ${from||'…'} et ${to||'…'}`:''} — top ${top.length} cartes par nombre d'exemplaires joués.</p>
       <table><thead><tr><th>Carte</th><th>Jouée</th><th>Possédées</th><th>Taux</th></tr></thead><tbody>
       ${top.map(([n,q]) => {
@@ -91,7 +89,8 @@ function vStatsColl(app){
         return `<tr><td><span class="link" data-nm="${esc(n)}">${esc(n)}</span></td><td class="hint">${q}</td><td class="${own>=q?'n':'m'}">${own}</td>
           <td><div class="bar" style="min-width:90px"><div style="width:${pct}%;background:${pct>=100?'var(--ok)':pct>=50?'var(--warn)':'var(--bad)'}"></div></div><span class="hint">${pct}%</span></td></tr>`;
       }).join('')}</tbody></table>`;
-    box.querySelectorAll('[data-nm]').forEach(el => el.onclick = () => R.showCardInfo(el.dataset.nm));
+      box.querySelectorAll('[data-nm]').forEach(el => el.onclick = () => R.showCardInfo(el.dataset.nm));
+    }).catch(() => { box.innerHTML = '<p class="hint">Serveur injoignable.</p>'; });
   };
   app.querySelector('#sc-fmt').onchange = e => { scF.fmt = e.target.value; runOwned(); };
   app.querySelector('#sc-from').onchange = e => { scF.from = e.target.value; runOwned(); };

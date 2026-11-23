@@ -6,7 +6,6 @@
 
 import { $, esc, norm } from './core/util.js';
 import { pullState, myDecks } from './core/model.js';
-import { DECKS, loadData } from './core/decks.js';
 import { sfAutocomplete } from './core/scryfall.js';
 import { loadLastPrices, loadPriceDays } from './core/pricedb.js';
 import { R, S } from './core/registry.js';
@@ -79,12 +78,12 @@ const inp = $('#globsearch'), sugg = $('#gsugg');
       const k = norm(q);
       // 1. decks perso
       const mine = myDecks.filter(d => norm(d.name).includes(k) || norm(d.format).includes(k));
-      // 2. decks MTGTop8 (nom, archétype, joueur) — max 8
-      const t8 = [];
-      for(let i = 0; i < DECKS.length && t8.length < 8; i++){
-        const d = DECKS[i];
-        if(norm(d[3]||'').includes(k) || norm(d[4]||'').includes(k) || norm(d[5]||'').includes(k)) t8.push(i);
-      }
+      // 2. decks MTGTop8 (nom, archétype, joueur) — max 8, via le serveur
+      let t8 = [];
+      try{
+        const rj = await (await fetch('/api/decks/search?view=decks&q=' + encodeURIComponent(q) + '&limit=8')).json();
+        if(rj.ok) t8 = rj.rows;
+      }catch(e){}
       // 3. cartes (autocomplétion multilingue)
       let cards = [];
       try{ cards = await sfAutocomplete(q); }catch(e){}
@@ -94,8 +93,8 @@ const inp = $('#globsearch'), sugg = $('#gsugg');
       sugg.innerHTML = `
         ${mine.length ? `<div class="sughead">Decks perso</div>` + mine.map(d =>
           `<div class="sug" data-kind="mydeck" data-id="${d.id}">🧩 ${esc(d.name)} <span class="hint">${esc(d.format)}</span></div>`).join('') : ''}
-        ${t8.length ? `<div class="sughead">Decks MTGTop8</div>` + t8.map(i =>
-          `<div class="sug" data-kind="t8deck" data-id="${i}">🏆 ${esc(DECKS[i][3]||'')} <span class="hint">${esc(DECKS[i][4]||'')}</span></div>`).join('') : ''}
+        ${t8.length ? `<div class="sughead">Decks MTGTop8</div>` + t8.map(d =>
+          `<div class="sug" data-kind="t8deck" data-id="${d[0]}">🏆 ${esc(d[3]||'')} <span class="hint">${esc(d[4]||'')}</span></div>`).join('') : ''}
         ${cards.length ? `<div class="sughead">Cartes</div>` + cards.map(n =>
           `<div class="sug" data-kind="card" data-id="${esc(n)}">🃏 ${esc(n)}</div>`).join('') : ''}
         ${!mine.length && !t8.length && !cards.length ? `<div class="sug hint">Aucun résultat</div>` : ''}`;
@@ -109,7 +108,7 @@ const inp = $('#globsearch'), sugg = $('#gsugg');
       // résultat carte -> popup fiche carte (1re impression)
       R.showCardInfo(it.dataset.id);
     }
-    else if(it.dataset.kind === 't8deck') R.showDeck(+it.dataset.id);
+    else if(it.dataset.kind === 't8deck') R.showDeckByDid(+it.dataset.id);
     else if(it.dataset.kind === 'mydeck'){ R.setView('mydecks'); R.openMyDeck(it.dataset.id); }
   });
 }
@@ -123,15 +122,12 @@ R.setView = setView;
 window.__booted = true;
 
 pullState().then(async () => {
-  try{
-    const m = await (await fetch('/api/decks/meta')).json();
-    if(m.ok){
-      const el = document.getElementById('loadmsg');
-      if(el) el.textContent = `Chargement des ${m.decks} decks 2026 depuis la base SQLite…`;
-    }
-  }catch(e){}
   await Promise.all([loadLastPrices(), loadPriceDays()]);   // prix affichés = prices.db (map scryfall_id + jours historisés)
-  loadData();
+  // Decks MTGTop8 servis à la demande (/api/decks/search|deck|playable|arch|topcards) :
+  // plus de chargement du dataset complet au boot -> le navigateur ne garde plus les 200k+ decks en RAM.
+  const l = document.getElementById('loader');
+  if(l) l.style.display = 'none';
+  render();
 });
 // mise à jour quotidienne des prix (AllPricesToday → prices.db), 1×/jour côté serveur
 fetch('/api/price/today', {method:'POST'}).catch(() => {});
