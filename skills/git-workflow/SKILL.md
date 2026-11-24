@@ -11,7 +11,8 @@ description: "Invoquer pour toute tâche impliquant git : créer une branche, co
    (ex. `Fix popup carte : ...`, `Ajout endpoint /api/market/sets`).
 3. Push : `git push -u origin dev-<sujet>`, puis PR `dev-<sujet>` → `developpement`.
 4. Avant de merger : invoquer le skill `pr-review` et relire le diff soi-même.
-5. `main` ne reçoit que les releases (voir skill `release`). Ne jamais push
-   directement sur `main` ou `developpement` si la protection de branche est active.
+5. `developpement` est **protégée** (status check `smoke` de la CI `.github/workflows/ci.yml`
+   requis avant merge, push direct interdit) : tout passe donc obligatoirement par une PR
+   avec CI verte. `main` ne reçoit que les releases (voir skill `release`).
 6. Ne jamais committer de données perso ni de binaires régénérables
    (`*.db`, `prices.db`, `mtgtop8.sqlite`, caches — voir `.gitignore`).

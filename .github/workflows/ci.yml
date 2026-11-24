@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [developpement]
+  push:
+    branches: [developpement]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'   # package.json engines: node >= 22.5
+
+      - name: Syntaxe JS (node --check sur server/ et js/)
+        run: |
+          find server js -name '*.js' -print0 | while IFS= read -r -d '' f; do
+            node --check "$f" || exit 1
+          done
+
+      - name: Syntaxe Python (scripts racine)
+        run: python3 -m py_compile price_seed.py scraper.py crawl.py scrape_run.py scrape_year.py check_scrape.py
+
+      - name: Boot serveur + smoke API (port 3999)
+        run: |
+          node server/server.js 3999 &
+          SRV=$!
+          for i in $(seq 1 20); do curl -sf http://localhost:3999/api/health >/dev/null 2>&1 && break; sleep 0.5; done
+          curl -sf http://localhost:3999/api/health   # attendu {"ok":true}
+          HTML=$(curl -sf http://localhost:3999/)
+          echo "$HTML" | grep -q 'js/main.js'
+          ! echo "$HTML" | grep -q 'cloudflareinsights'   # regression anti-beacon
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3999/mtg_data.db)
+          [ "$code" = "404" ] || [ "$code" = "403" ]      # les *.db ne sont jamais servis
+          kill $SRV
