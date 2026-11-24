@@ -104,4 +104,4 @@ export function refreshPriceTimelines(){
   if(!DAYS) return;
   for(const t of timelines.values()) if(t.draw) t.draw(t.hover);
 }
-export { frOf as frOfDay };
+export { ordOf, isoOf, frOf as frOfDay };

@@ -24,8 +24,13 @@
      GET|POST /api/mkm/settings, POST /api/mkm/* -> proxy signé OAuth Cardmarket
      GET|POST /api/scrape, GET /api/scrape/status -> scraping MTGTop8 année en cours (scrape_run.py : phase1 + crawl)
      POST /api/scrape/one {year,format,seconds}, GET /api/scrape/grid -> scraping ciblé année x format (scrape_year.py) + grille formats x années lue dans la snapshot
-     GET  /api/decks         -> dataset decks depuis mtgtop8.sqlite (JSON gzippe, cache mtime)
      GET  /api/decks/meta    -> compteurs (decks/events/cartes/max date, par format)
+     GET  /api/decks/search  -> recherche paginee : view=events|decks, fmt, q, dateFrom, dateTo, players, sort, dir, page, limit
+     GET  /api/decks/deck?did= -> 1 deck complet (13 champs, main/side)
+     GET  /api/decks/stats?fmt= -> agregats par archetype/format
+     GET  /api/decks/playable -> decks jouables vs collection : scan en worker, cache par version (base + collection), 202 si build en cours
+     GET  /api/decks/arch?fmt=&arch=[&side=1] -> analyse d'inclusion d'un archetype (cartes agregees)
+     GET  /api/decks/topcards?fmt=&dateFrom=&dateTo=&limit= -> cartes les plus jourees d'un format sur une periode
    ============================================================ */
 import http from 'node:http';
 import { createApp } from './app.js';

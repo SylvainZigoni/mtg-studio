@@ -1,60 +1,295 @@
-import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS } from '../core/util.js';
+import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, frDate, CONDS, COND_LABEL, LANGS } from '../core/util.js';
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
-import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+import { parseDeck, parseLists, analyzeLists, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+import { ordOf, isoOf } from '../core/pricedb.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
 
 /* ============================================================
-   VUE TOURNOIS & DECKS
+   VUE TOURNOIS MTGTop8 — recherche de tournois (dev-top8_tournament)
+   - filtres haut de page : formats (menu déroulant multi-checkbox,
+     aucun coché = tous), nombre de joueurs (choix unique : +19/+49/
+     +99/+199 = "plus de N" ; tournois sans nb de joueurs toujours
+     visibles), recherche tournoi (bouton Go intégré au champ,
+     nom + lieu, insensible casse/accents), champs joueur/carte
+     présents mais inactifs, jauge de dates à 2 curseurs
+     (défaut = pleine plage des events)
+   - KPI + panneau Archétype calculés sur TOUS les decks filtrés
+   - tableau des tournois : colonnes Date 12% / Format 6% / Nom 45% /
+     Lieu 25% (sans retour à la ligne) / Nb joueurs 10% / flèche 2%,
+     tri par en-têtes cliquables (défaut date décroissante), hauteur
+     fixe avec scroll interne (plus de pagination), lignes
+     multi-dépliables, contenu du déplié généré au premier clic
+   - déplié : decks du tournoi triés rang croissant, égalité de rang
+     -> ordre alphabétique du nom du deck ; clic ligne -> showDeck
    ============================================================ */
-let deckFmt = 'MO', deckQuery = '', dqTimer = null, deckEvent = null;
-function vDecks(app){
-  if(deckEvent !== null) return vEventDetail(app);
-  const evs = EVENTS.filter(e => e.fmt===deckFmt && (!deckQuery || (e.name+' '+e.place).toLowerCase().includes(deckQuery.toLowerCase())));
+const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
+const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Joueurs']];
+const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
+const T8_PCOLS = [['player','Nom'],['date','Date'],['fmt','Format'],['evname','Nom du tournoi'],['deck','Deck joué'],['rank','Rang'],['players','Joueurs']];
+const T8_PCOLW = [14, 12, 8, 30, 20, 6, 10];   // % : nom, date, format, tournoi, deck, rang, joueurs
+const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
+let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', page:1, cursors:[], open:new Set(), _rt:null };
+let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
+let t8Bounds = null;    // bornes (ordinaux de jours) des dates d'events
+let ddCloseBound = false;
+
+const fmtLabel = c => (FMT_META && FMT_META.find(f => f.code===c)?.name) || FMT_NAMES[c] || c;
+const fmtShort = c => FMT_SHORT[c] || String(c||'').slice(0,3).toUpperCase();
+
+async function loadFmtMeta(){
+  if(FMT_META !== null) return;
+  try{
+    const j = await (await fetch('/api/decks/meta')).json();
+    if(j.ok && j.formats) FMT_META = j.formats;
+    if(j.ok && j.minDate && j.maxDate) t8Bounds = {min: ordOf(j.minDate), max: ordOf(j.maxDate)};
+  }catch(e){}
+  if(!FMT_META) FMT_META = [];
+}
+
+function t8dateBounds(){
+  if(t8Bounds) return t8Bounds;
+  return {min:0, max:0};
+}
+
+/* appel paginé à /api/decks/search avec l'état courant des filtres t8 */
+async function t8fetch(){
+  const q = new URLSearchParams();
+  q.set('view', t8.mode==='pl' ? 'decks' : 'events');
+  if(t8.fmts.length) q.set('fmt', t8.fmts.join(','));
+  if(t8.players && t8.players!=='ALL') q.set('players', t8.players);
+  if(t8.q) q.set('q', t8.q);
+  if(t8.dateFrom!=null) q.set('dateFrom', isoOf(t8.dateFrom));
+  if(t8.dateTo!=null) q.set('dateTo', isoOf(t8.dateTo));
+  q.set('sort', t8.mode==='pl' && t8.sortCol==='deck' ? 'name' : t8.sortCol);
+  q.set('dir', t8.sortDir);
+  q.set('page', String(t8.page||1));
+  q.set('limit', '25');
+  if(t8.sortCol==='date'){   // keyset : curseur = dernière ligne de la page précédente
+    const cur = t8.cursors[t8.page-2];
+    if(cur){ const cp = cur.split('|'); q.set('afterDate', cp[0]); q.set('afterId', cp[1]); }
+  }
+  const r = await fetch('/api/decks/search?' + q.toString());
+  return await r.json();
+}
+
+/* decks d'un tournoi (dépliable) chargés à la demande via /api/decks/search?eid= */
+async function t8loadEventDecks(eid, td){
+  let j;
+  try{ j = await (await fetch('/api/decks/search?view=decks&eid=' + encodeURIComponent(eid) + '&sort=rank&dir=asc&limit=50')).json(); }catch(e){ return; }
+  if(!j || !j.ok) return;
+  td.innerHTML = j.rows.length
+    ? `<table class="decksub"><thead><tr><th>#</th><th>Deck</th><th>Archétype</th><th>Joueur</th></tr></thead><tbody>${j.rows.map(d => `<tr class="dkrow" data-did="${d[0]}"><td>#${d[2]}</td><td>${esc(d[3]||'')}</td><td class="arch">${esc(d[4]||'—')}</td><td>${esc(d[5]||'')}</td></tr>`).join('')}</tbody></table>`
+    : '<p class="hint">Aucun deck référencé.</p>';
+  td.querySelectorAll('tr.dkrow').forEach(r => r.onclick = () => showDeckByDid(+r.dataset.did));
+}
+
+const t8fmtBtnLabel = () => t8.fmts.length ? `Format · ${t8.fmts.length} coché${t8.fmts.length>1?'s':''} ▾` : 'Format ▾';
+
+async function vDecks(app){
+  await loadFmtMeta();
+  const b = t8dateBounds();
+  if(t8.dateFrom===null){ t8.dateFrom = b.min; t8.dateTo = b.max; }
+  const fmts = FMT_META.map(f => f.code).sort((x,y) => fmtLabel(x).localeCompare(fmtLabel(y)));
   app.innerHTML = `
   <div class="panel">
-    <div class="row">
-      <select id="dfmt">${Object.entries(FMT_NAMES).map(([k,v])=>`<option value="${k}" ${k===deckFmt?'selected':''}>${v}</option>`).join('')}</select>
-      <input type="text" id="dq" placeholder="Rechercher un tournoi…" value="${esc(deckQuery)}">
-      <span class="hint">${evs.length} tournois en 2026</span>
+    <div class="row t8f">
+      <div class="dd" id="fmtdd">
+        <button type="button" class="btn ghost" id="fmtbtn">${t8fmtBtnLabel()}</button>
+        <div class="ddmenu" id="fmtmenu">
+          <label><input type="checkbox" id="fmtall" ${t8.fmts.length===0?'checked':''}> Tous les formats</label>
+          ${fmts.map(f => `<label><input type="checkbox" class="fmtchk" value="${esc(f)}" ${t8.fmts.includes(f)?'checked':''}> ${esc(fmtLabel(f))}</label>`).join('')}
+        </div>
+      </div>
+      <select id="t8players">${T8_BUCKETS.map(([v,l]) => `<option value="${v}" ${t8.players===v?'selected':''}>${l}</option>`).join('')}</select>
+      ${[['ev','Rechercher un tournoi'],['pl','Rechercher un joueur'],['cd','Rechercher une carte']].map(([m,ph]) => {
+        const active = t8.mode===m, goOn = active && m!=='cd';
+        return `<span class="gosearch-wrap"><input type="radio" name="t8mode" value="${m}" class="t8radio" ${active?'checked':''} title="Recherche : ${ph.replace('Rechercher un ','')}"><span class="gosearch"><input type="text" id="t8q-${m}" placeholder="${ph}" value="${m==='ev'?esc(t8.q):''}"${active?'':' disabled'}><button type="button" class="btn${goOn?'':' ghost'}" id="t8go-${m}"${goOn?'':' disabled'} title="${goOn?'Lancer la recherche':'Bientôt disponible'}">Go</button></span></span>`;
+      }).join('')}
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span class="hint">Date :</span>
+      <div class="evrange">
+        <div class="ev-track"><div class="ev-fill" id="evfill"></div></div>
+        <input type="range" id="evmin" min="${b.min}" max="${b.max}" step="1" value="${t8.dateFrom}">
+        <input type="range" id="evmax" min="${b.min}" max="${b.max}" step="1" value="${t8.dateTo}">
+        <div class="ev-labs"><span id="evlabmin">${frDate(isoOf(t8.dateFrom))}</span><span id="evlabmax">${frDate(isoOf(t8.dateTo))}</span></div>
+      </div>
     </div>
   </div>
-  <div class="deck-list">${evs.slice(0,100).map(e => `
-    <div class="deck" data-e="${e.eid}">
-      <h3>${esc(e.name)}</h3>
-      <div class="meta">
-        <span class="fmt">${fmtName(e.fmt)}</span> ${esc(e.place||'')}<br>${esc(e.date||'')}
-      </div>
-      <div class="hint">${e.decks.length} decks référencés</div>
-    </div>`).join('')}</div>
-  ${evs.length>100?'<p class="hint" style="margin-top:10px">100 premiers résultats.</p>':''}`;
-  app.querySelector('#dfmt').onchange = e => { deckFmt = e.target.value; vDecks(app); };
-  app.querySelector('#dq').oninput = e => { deckQuery = e.target.value; clearTimeout(dqTimer); dqTimer = setTimeout(()=>vDecks(app), 300); };
-  app.querySelectorAll('[data-e]').forEach(el => el.onclick = () => { deckEvent = +el.dataset.e; vDecks(app); });
+  <div class="t8grid">
+    <div>
+      <div class="panel t8kpi" id="t8kpi"></div>
+      <div class="panel"><h3 class="sub" style="margin-top:0">Archétype</h3><div class="archlist" id="t8arch"></div></div>
+    </div>
+    <div class="panel"><h3 class="sub" style="margin-top:0">Liste des tournois</h3><div id="t8results"></div></div>
+  </div>`;
+  if(!ddCloseBound){
+    ddCloseBound = true;
+    document.addEventListener('click', e => { if(!e.target.closest('.dd')) $$('.dd.open').forEach(d => d.classList.remove('open')); });
+  }
+  const dd = app.querySelector('#fmtdd');
+  app.querySelector('#fmtbtn').onclick = () => dd.classList.toggle('open');
+  const fmtall = app.querySelector('#fmtall');
+  const syncFmt = () => { fmtall.checked = t8.fmts.length===0; app.querySelector('#fmtbtn').textContent = t8fmtBtnLabel(); };
+  fmtall.onchange = () => {
+    if(!fmtall.checked) return;
+    t8.fmts = [];
+    app.querySelectorAll('.fmtchk').forEach(c => c.checked = false);
+    syncFmt(); t8.page = 1; t8.cursors = []; renderT8Results(app);
+  };
+  app.querySelectorAll('.fmtchk').forEach(c => c.onchange = () => {
+    t8.fmts = [...app.querySelectorAll('.fmtchk:checked')].map(x => x.value);
+    syncFmt(); t8.page = 1; t8.cursors = []; renderT8Results(app);
+  });
+  app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; t8.page = 1; t8.cursors = []; renderT8Results(app); };
+  app.querySelectorAll('.t8radio').forEach(r => r.onchange = () => { t8.mode = r.value; t8.q = ''; vDecks(app); });
+  ['ev','pl'].forEach(m => {
+    const inp = app.querySelector('#t8q-'+m), go = app.querySelector('#t8go-'+m);
+    if(!inp || !go) return;
+    const doQ = () => { t8.q = inp.value.trim(); t8.page = 1; t8.cursors = []; renderT8Results(app); };
+    go.onclick = doQ;
+    inp.onkeydown = e => { if(e.key==='Enter') doQ(); };
+  });
+  const evmin = app.querySelector('#evmin'), evmax = app.querySelector('#evmax');
+  const labs = () => {
+    app.querySelector('#evlabmin').textContent = frDate(isoOf(+evmin.value));
+    app.querySelector('#evlabmax').textContent = frDate(isoOf(+evmax.value));
+    const f = app.querySelector('#evfill'), mn = +evmin.min, mx = +evmax.max;
+    f.style.left  = ((+evmin.value - mn) / (mx - mn) * 100) + '%';
+    f.style.right = (100 - (+evmax.value - mn) / (mx - mn) * 100) + '%';
+  };
+  const onrange = () => {
+    evmin.max = evmax.value; evmax.min = evmin.value;
+    labs();
+    clearTimeout(t8._rt);
+    t8._rt = setTimeout(() => { t8.dateFrom = +evmin.value; t8.dateTo = +evmax.value; t8.page = 1; t8.cursors = []; renderT8Results(app); }, 250);
+  };
+  evmin.oninput = onrange; evmax.oninput = onrange;
+  labs();
+  renderT8Results(app);
 }
-function vEventDetail(app){
-  const ev = EVENTS.find(e => e.eid === deckEvent);
-  app.innerHTML = `
-  <div class="panel">
-    <button class="btn ghost" id="back">← Tournois ${fmtName(ev.fmt)}</button>
-    <h3 style="margin-top:10px">${esc(ev.name)}</h3>
-    <p class="hint">${esc(ev.place||'')} · ${esc(ev.date||'')} · ${ev.decks.length} decks référencés</p>
-  </div>
-  <div class="deck-list">${ev.decks.map(i => {
-    const d = DECKS[i], a = analyze(i, false), pct = Math.round(a.pct*100);
-    return `<div class="deck" data-i="${i}">
-      <h3>#${d[2]} ${esc(d[3])}</h3>
-      <div class="meta">${esc(d[4]||'')} · ${esc(d[5]||'')}</div>
-      <div class="bar"><div style="width:${pct}%;background:${pct>=95?'var(--ok)':pct>=70?'var(--warn)':'var(--bad)'}"></div></div>
-      <div class="row" style="justify-content:space-between"><b style="color:${pct>=95?'var(--ok)':'var(--accent)'}">${pct}% possédé</b>
-      <span class="missing">${a.missingQty} manquantes</span></div>
-    </div>`; }).join('')}</div>`;
-  app.querySelector('#back').onclick = () => { deckEvent=null; vDecks(app); };
-  app.querySelectorAll('[data-i]').forEach(el => el.onclick = () => showDeck(+el.dataset.i));
+
+async function renderT8Results(app){
+  if(t8.mode==='pl') return renderT8Player(app);
+  const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
+  if(!box) return;
+  let j;
+  try{ j = await t8fetch(); }
+  catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
+  if(!j || !j.ok){ box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return; }
+  const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), dt = j.decksTotal || 0;
+  kpi.innerHTML = `<div class="big">${total} tournoi${total>1?'s trouvés':' trouvé'}</div><div class="big2">${dt} decks</div>`;
+  const am = new Map();
+  (j.archs || []).forEach(a => { const k = a.arch || '(sans archétype)'; am.set(k, (am.get(k) || 0) + a.n); });
+  const al = [...am.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
+  arch.innerHTML = al.length
+    ? al.map(([a,n]) => `<div class="arch-item" data-arch="${esc(a)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${dt ? Math.round(n/dt*100) : 0}%</span></div>`).join('')
+    : '<p class="hint">Aucun deck dans les tournois filtrés.</p>';
+  const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_COLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
+  const rows = j.rows.map(e => {
+    const open = t8.open.has(e.eid);
+    return `<tr class="evrow${open?' open':''}" data-eid="${e.eid}"><td class="c-date" style="text-align:center">${frDate(e.date)}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(e.fmt))}</span></td><td class="c-name">${esc(e.name||'')}</td><td class="c-place" title="${esc(e.place||'')}">${esc(e.place||'—')}</td><td class="c-players" style="text-align:center">${e.players==null?'—':e.players}</td><td class="c-chev" style="text-align:center"><span class="chev">▸</span></td></tr>` +
+      `<tr class="evdetail" data-eid="${e.eid}"${open?'':' style="display:none"'}><td colspan="6">${open ? '<p class="hint">Chargement…</p>' : ''}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_COLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_COLS.map(([c]) => th(c)).join('')}<th class="c-chev" style="text-align:center"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table></div>
+  <div class="row" style="justify-content:space-between;margin-top:8px">
+    <button class="btn ghost" id="pgprev" ${j.page<=1?'disabled':''}>← Précédent</button>
+    <span class="hint">Page ${j.page}/${pages} · ${total} résultats</span>
+    <button class="btn ghost" id="pgnext" ${j.page>=pages?'disabled':''}>Suivant →</button>
+  </div>`;
+  { const lr = j.rows[j.rows.length-1];   // curseur keyset = dernière ligne de la page
+    if(lr){ t8.cursors[t8.page-1] = t8.mode==='pl' ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
+  box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
+    const c = h.dataset.col;
+    if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
+    else { t8.sortCol = c; t8.sortDir = c==='date' ? 'desc' : 'asc'; }
+    t8.page = 1; t8.cursors = []; renderT8Results(app);
+  });
+  const pgp = box.querySelector('#pgprev'), pgn = box.querySelector('#pgnext');
+  if(pgp) pgp.onclick = () => { if(t8.page > 1){ t8.page--; renderT8Results(app); } };
+  if(pgn) pgn.onclick = () => { if(t8.page < pages){ t8.page++; renderT8Results(app); } };
+  box.querySelectorAll('tr.evrow').forEach(r => r.onclick = () => {
+    const eid = +r.dataset.eid, det = box.querySelector(`tr.evdetail[data-eid="${eid}"]`);
+    const open = r.classList.toggle('open');
+    if(open){
+      t8.open.add(eid);
+      if(det){
+        det.style.display = '';
+        const td = det.firstElementChild;
+        if(!td.dataset.loaded){ td.dataset.loaded = '1'; t8loadEventDecks(eid, td); }
+      }
+    } else { t8.open.delete(eid); if(det) det.style.display = 'none'; }
+  });
+  // ré-ouvrir les détails déjà ouverts (changement de page / re-rendu)
+  box.querySelectorAll('tr.evdetail').forEach(det => {
+    const eid = +det.dataset.eid;
+    if(t8.open.has(eid) && det.style.display !== 'none'){
+      const td = det.firstElementChild;
+      if(!td.dataset.loaded){ td.dataset.loaded = '1'; t8loadEventDecks(eid, td); }
+    }
+  });
 }
+
+
+/* mode 'pl' : tableau des decks (joueur) paginé côté serveur + archétypes groupés par format + KPI */
+async function renderT8Player(app){
+  const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
+  if(!box) return;
+  let j;
+  try{ j = await t8fetch(); }
+  catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
+  if(!j || !j.ok){ box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return; }
+  const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), et = j.eventsTotal || 0;
+  kpi.innerHTML = `<div class="big">${total} deck${total>1?'s trouvés':' trouvé'}</div><div class="big2">${et} tournoi${et>1?'s':''}</div>`;
+  const byFmt = new Map();
+  (j.archs || []).forEach(a => {
+    const f = fmtShort(a.fmt), an = a.arch || '(sans archétype)';
+    if(!byFmt.has(f)) byFmt.set(f, new Map());
+    const m = byFmt.get(f);
+    m.set(an, (m.get(an) || 0) + a.n);
+  });
+  const fmts = [...byFmt.keys()].sort();
+  let ahtml = '';
+  for(const f of fmts){
+    const m = byFmt.get(f);
+    const items = [...m.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
+    ahtml += `<div class="arch-fmt">${esc(f)}</div>` + items.map(([a,n]) =>
+      `<div class="arch-item" data-arch="${esc(a)}" data-fmt="${esc(f)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${total ? Math.round(n/total*100) : 0}%</span></div>`).join('');
+  }
+  arch.innerHTML = ahtml || '<p class="hint">Aucun deck ne correspond aux filtres.</p>';
+  const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_PCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
+  const rows = j.rows.map(d =>
+    `<tr class="dkrow2" data-did="${d[0]}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date" style="text-align:center">${frDate(d[8])}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank" style="text-align:center">#${d[2]}</td><td class="c-players" style="text-align:center">${d[12]==null?'—':d[12]}</td></tr>`).join('');
+  box.innerHTML = `<div class="evscroll"><table class="evtable ptable"><colgroup>${T8_PCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_PCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="7" class="hint">Aucun deck ne correspond aux filtres.</td></tr>'}</tbody></table></div>
+  <div class="row" style="justify-content:space-between;margin-top:8px">
+    <button class="btn ghost" id="pgprev" ${j.page<=1?'disabled':''}>← Précédent</button>
+    <span class="hint">Page ${j.page}/${pages} · ${total} résultats</span>
+    <button class="btn ghost" id="pgnext" ${j.page>=pages?'disabled':''}>Suivant →</button>
+  </div>`;
+  { const lr = j.rows[j.rows.length-1];   // curseur keyset = dernière ligne de la page
+    if(lr){ t8.cursors[t8.page-1] = t8.mode==='pl' ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
+  box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
+    const c = h.dataset.col;
+    if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
+    else { t8.sortCol = c; t8.sortDir = c==='date' ? 'desc' : 'asc'; }
+    t8.page = 1; t8.cursors = []; renderT8Results(app);
+  });
+  const pgp = box.querySelector('#pgprev'), pgn = box.querySelector('#pgnext');
+  if(pgp) pgp.onclick = () => { if(t8.page > 1){ t8.page--; renderT8Results(app); } };
+  if(pgn) pgn.onclick = () => { if(t8.page < pages){ t8.page++; renderT8Results(app); } };
+  box.querySelectorAll('tr.dkrow2').forEach(r => r.onclick = () => openDeckPage(+r.dataset.did));
+}
+
+function openDeckPage(did){
+  // TODO : page dédiée "deck joué par un joueur" (à coder plus tard).
+  // En attendant, le clic ouvre le visualiseur de deck existant (chargé via /api/decks/deck).
+  showDeckByDid(did);
+}
+R.openDeckPage = openDeckPage;   // hook exposé pour la future page
 
 /* ---- détail d'un deck : visualiseur complet (groupement, courbe, colorpies, legalités) ---- */
 let dvGroup = 'type', dvTab = 'main';           // état partagé du visualiseur
@@ -193,16 +428,23 @@ function bindDeckView(container, rerender){
   const gsel = container.querySelector('#dvgroup');
   if(gsel) gsel.onchange = e => { dvGroup = e.target.value; rerender(); };
 }
-async function showDeck(i){
-  const d = DECKS[i], a = analyze(i, true);
-  const {main, side} = parseDeck(i);
-  const ev = EVENTS.find(e => e.eid===d[9]);
+function showDeck(i){
+  showDeckData(DECKS[i]);
+}
+async function showDeckByDid(did){
+  let j;
+  try{ j = await (await fetch('/api/decks/deck?did=' + encodeURIComponent(did))).json(); }catch(e){ return; }
+  if(j && j.ok && j.deck) showDeckData(j.deck);
+}
+async function showDeckData(d){
+  const {main, side} = parseLists(d[10], d[11]);
+  const a = analyzeLists(main, side, true);
   openModal(`
     <button class="close" id="mclose2">✕</button>
     <h2>${esc(d[3])}</h2>
     <p class="hint" style="margin:6px 0">
       <span class="fmt">${fmtName(d[1])}</span> ${esc(d[4]||'')} · ${esc(d[5]||'')} · #${d[2]}<br>
-      ${esc(ev?.name||'')} — ${esc(ev?.place||'')} · ${esc(d[8]||'')}</p>
+      ${esc(d[6]||'')} — ${esc(d[7]||'')} · ${esc(d[8]||'')}</p>
     <p style="margin-bottom:10px"><b>${Math.round(a.pct*100)}% possédé</b> · ${a.missingQty} cartes manquantes
       <button class="btn ghost" id="decktags" style="margin-left:10px">🧠 Métadonnées</button></p>
     <div id="tagdist"></div>
@@ -278,47 +520,46 @@ function vPlayable(app){
   bind('#p-fmt','fmt'); bind('#p-sort','sort'); bind('#p-side','withSide'); bind('#p-pct','minPct'); bind('#p-q','q');
   runPlayable(app);
 }
-function runPlayable(app){
+async function runPlayable(app){
   const box = app.querySelector('#pres');
-  const q = pf.q.toLowerCase();
-  const out = [];
-  for(let i=0;i<DECKS.length;i++){
-    const d = DECKS[i];
-    if(pf.fmt!=='ALL' && d[1]!==pf.fmt) continue;
-    if(q && !(d[3]+' '+d[4]+' '+d[5]).toLowerCase().includes(q)) continue;
-    const a = analyze(i, pf.withSide);
-    const pct = Math.round(a.pct*100);
-    if(pct < pf.minPct) continue;
-    out.push([i,d,a,pct]);
+  box.innerHTML = '<p class="hint">Analyse…</p>';
+  const params = new URLSearchParams({fmt: pf.fmt, minPct: String(pf.minPct), q: pf.q,
+    withSide: pf.withSide ? '1' : '0', sort: pf.sort, page: '1', limit: '200'});
+  let j;
+  try{ j = await (await fetch('/api/decks/playable?' + params.toString())).json(); }
+  catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/playable).</p>'; return; }
+  if(!j || !j.ok){
+    if(j && j.building){ box.innerHTML = '<p class="hint">Calcul de l\'analyse côté serveur en cours…</p>'; clearTimeout(pf._rt); pf._rt = setTimeout(() => runPlayable(app), 3000); return; }
+    box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return;
   }
-  out.sort((x,y) => pf.sort==='pct' ? (y[3]-x[3] || y[1][8].localeCompare(x[1][8]))
-    : pf.sort==='players' ? ((y[1][12]||0)-(x[1][12]||0)) : y[1][8].localeCompare(x[1][8]));
-  const n100 = out.filter(o=>o[3]===100).length;
+  const out = j.rows;   // [{did, pct, missing, d:[13 champs]}]
+  const n100 = out.filter(o => Math.round(o.pct*100) === 100).length;
   box.innerHTML = `
-  <p class="hint" style="margin-bottom:12px"><b>${out.length}</b> decks · dont <b>${n100}</b> jouables à 100%</p>
-  <div class="deck-list">${out.slice(0,120).map(([i,d,a,pct])=>`
-    <div class="deck" data-i="${i}">
+  <p class="hint" style="margin-bottom:12px"><b>${j.total}</b> decks · dont <b>${n100}</b> jouables à 100%${j.cached ? '' : ' (recalcul en cours côté serveur…)'}</p>
+  <div class="deck-list">${out.map(o => {
+    const d = o.d, pct = Math.round(o.pct*100);
+    return `<div class="deck" data-did="${o.did}">
       <h3>${esc(d[3])} ${pct===100?'✅':''}</h3>
       <div class="meta"><span class="fmt">${fmtName(d[1])}</span> ${esc(d[4]||'')} · ${esc(d[5]||'')} · #${d[2]}<br>
         ${esc(d[6])} · ${esc(d[8])}</div>
       <div class="bar"><div style="width:${pct}%;background:${pct>=95?'var(--ok)':pct>=70?'var(--warn)':'var(--bad)'}"></div></div>
       <div class="row" style="justify-content:space-between">
         <b style="color:${pct===100?'var(--ok)':pct>=70?'var(--warn)':'var(--accent)'}">${pct}%</b>
-        <span class="missing">${a.missingQty} manquantes</span></div>
-    </div>`).join('')}</div>
-  ${out.length>120?'<p class="hint" style="margin-top:10px">120 meilleurs résultats affichés.</p>':''}`;
-  box.querySelectorAll('.deck').forEach(el => el.onclick = () => showDeck(+el.dataset.i));
+        <span class="missing">${o.missing} manquantes</span></div>
+    </div>`;}).join('')}</div>
+  ${j.total > out.length ? `<p class="hint" style="margin-top:10px">${out.length} meilleurs résultats affichés sur ${j.total}.</p>` : ''}`;
+  box.querySelectorAll('.deck').forEach(el => el.onclick = () => showDeckByDid(+el.dataset.did));
 }
 
 /* ============================================================
    VUE ARCHÉTYPES (analyse d'inclusion — point 1)
    ============================================================ */
 let ar = {fmt:'PAU', arch:null};
-function vArchetypes(app){
+async function vArchetypes(app){
   if(ar.arch) return vArchetypeAnalysis(app);
-  const counts = new Map();
-  DECKS.forEach(d => { if(d[1]===ar.fmt) counts.set(d[4]||'(sans archétype)', (counts.get(d[4]||'(sans archétype)')||0)+1); });
-  const list = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
+  let j = null;
+  try{ j = await (await fetch('/api/decks/stats?fmt=' + encodeURIComponent(ar.fmt))).json(); }catch(e){}
+  const list = (j && j.ok ? j.archetypes : []).map(a => [a.arch, a.n]).sort((a,b)=>b[1]-a[1]);
   app.innerHTML = `
   <div class="panel"><div class="row">
     <select id="a-fmt">${Object.entries(FMT_NAMES).map(([k,v])=>`<option value="${k}" ${k===ar.fmt?'selected':''}>${v}</option>`).join('')}</select>
@@ -332,21 +573,15 @@ function vArchetypes(app){
   app.querySelectorAll('[data-a]').forEach(ch => ch.onclick = () => { ar.arch = ch.dataset.a; vArchetypes(app); });
 }
 let archSide = false;
-function vArchetypeAnalysis(app){
-  const decks = DECKS.map((d,i)=>({d,i})).filter(x => x.d[1]===ar.fmt && (x.d[4]||'(sans archétype)')===ar.arch);
-  const stats = new Map(); // card -> {decks, qty, list}
-  decks.forEach(({i}) => {
-    const {main, side} = parseDeck(i);
-    const pool = archSide ? main.concat(side) : main;
-    const seen = new Set();
-    pool.forEach(([n,q]) => { const k = norm(n);
-      if(seen.has(k)) return; seen.add(k);
-      const s = stats.get(k) || {n, decks:0, qty:0};
-      s.decks++; s.qty += q; stats.set(k, s); });
-  });
-  const total = decks.length;
-  const rows = [...stats.values()].map(s => ({
-    n:s.n, pct: s.decks/total*100, avg: (s.qty/s.decks),
+async function vArchetypeAnalysis(app){
+  let j = null;
+  try{
+    j = await (await fetch('/api/decks/arch?fmt=' + encodeURIComponent(ar.fmt) + '&arch=' + encodeURIComponent(ar.arch) + (archSide ? '&side=1' : ''))).json();
+  }catch(e){}
+  if(!j || !j.ok){ app.innerHTML = '<div class="panel"><p class="hint">⚠ Analyse indisponible (GET /api/decks/arch).</p></div>'; return; }
+  const total = j.total;
+  const rows = (j.cards || []).map(c => ({
+    n: c.card, pct: total ? c.decks/total*100 : 0, avg: c.decks ? c.qty/c.decks : 0,
   })).sort((a,b)=>b.pct-a.pct || b.avg-a.avg);
   app.innerHTML = `
   <div class="panel">
@@ -371,9 +606,10 @@ function vArchetypeAnalysis(app){
   app.querySelectorAll('.cinfo').forEach(td => td.onclick = () => R.showCardInfo(td.textContent));
 }
 
-R.views.decks = a => { deckEvent = null; vDecks(a); };   // le burger remet la liste (reset de l'état détail)
+R.views.decks = vDecks;   // le burger rouvre la liste des tournois (état des filtres conservé)
 R.views.playable = vPlayable;
 R.views.archetypes = a => { ar.arch = null; vArchetypes(a); };
 R.showDeck = showDeck;
+R.showDeckByDid = showDeckByDid;
 
-export { vDecks, vEventDetail, analyzeList, gatherMeta, metaOf, typeBucket, groupCards, manaCurve, costColors, landProduces, deckLegalities, deckViewHTML, drawDeckCharts, bindDeckView, showDeck, hydrateImage, deckTagDistribution, vPlayable, runPlayable, vArchetypes, vArchetypeAnalysis, deckFmt, dvGroup, TYPE_ORDER, LEGAL_FMTS, pf, ar, archSide };
+export { vDecks, analyzeList, gatherMeta, metaOf, typeBucket, groupCards, manaCurve, costColors, landProduces, deckLegalities, deckViewHTML, drawDeckCharts, bindDeckView, showDeck, showDeckByDid, showDeckData, hydrateImage, deckTagDistribution, vPlayable, runPlayable, vArchetypes, vArchetypeAnalysis, dvGroup, TYPE_ORDER, LEGAL_FMTS, pf, ar, archSide };

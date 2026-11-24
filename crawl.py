@@ -2,7 +2,7 @@
 """Parallel resumable crawler: python3 crawl.py <seconds> [events|decks]"""
 import os, sys, time, threading, queue, urllib.request, gzip
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from scraper import BASE, parse_event_page, parse_deck_page, db
+from scraper import BASE, parse_event_page, parse_deck_page, db, decode_body
 
 WORKERS = 4
 MIN_INTERVAL = 0.12
@@ -20,7 +20,7 @@ def get(url):
             d = r.read()
             if r.headers.get("Content-Encoding") == "gzip":
                 d = gzip.decompress(d)
-            return d.decode("utf-8", "replace")
+            return decode_body(d, r.headers)
         except Exception:
             if attempt == 2:
                 return None

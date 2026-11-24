@@ -48,8 +48,11 @@ async function loadData(){
 }
 
 /* ---------------- analyse collection ↔ decks ---------------- */
-function analyze(i, withSide){
-  const {main, side} = parseDeck(i);
+function parseLists(mainStr, sideStr){
+  const parse = s => (s ? s.split('||').map(x => {const m = x.match(/^(\d+)x (.+)$/); return m ? [m[2], +m[1]] : [x,1];}) : []);
+  return {main: parse(mainStr), side: parse(sideStr)};
+}
+function analyzeLists(main, side, withSide){
   const need = new Map();
   const add = (name, qty) => {
     const k = norm(name);
@@ -64,5 +67,9 @@ function analyze(i, withSide){
   need.forEach(v => {tot += v[1]; own += v[2];});
   return {need, pct: tot ? own/tot : 1, missingQty: tot-own};
 }
+function analyze(i, withSide){
+  const {main, side} = parseDeck(i);
+  return analyzeLists(main, side, withSide);
+}
 
-export { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS };
+export { parseDeck, parseLists, analyzeLists, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS };

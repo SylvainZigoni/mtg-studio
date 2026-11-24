@@ -18,6 +18,11 @@
 - Point de prix « aberrant » = `<= 0 €` uniquement ; les vrais prix bas (0,02–0,09 €) doivent calculer une évolution (flat, %).
 - `index.html` et `js/` doivent rester cohérents (js récent + index ancien = boot bloqué avant tout fetch ; guard dans `js/main.js`).
 
+- `$`/`$$` (`js/core/util.js`) sont des `querySelector` **globaux** : si un même id existe dans deux vues (ex. `#newtag` dans la vue collection ET dans la popup carte), le binding se pose sur le mauvais élément → toujours scoper au conteneur (`$('#modal #newtag')`).
+- `sfSetPrints` doit renvoyer le print **complet** (id, oracle, image_lg, scryfall_uri…) comme `sfPrints` : sinon prix (`dbPrices(cur.id)`), sparkline (`/api/price?sfid=`) et oracle de la popup carte tombent silencieusement.
+- Les `<option>` d'un `<select>` natif ne rendent pas les `<img>` → pour un choix « langue + drapeau », passer par un dropdown custom (`.langdd` dans la popup carte).
+- `.rarity-dot` est partagée (collection, marché, popup) : ne jamais modifier sa taille globalement → scoper (ex. `.cp-right h2 .rarity-dot` dans la popup).
+
 ## Avant de coder
 - Rechercher dans le code existant si la fonction ou l'endpoint demandé existe déjà (grep sur le nom, la route, la ressource) avant d'en écrire un nouveau ; si une fonction proche existe, la réutiliser ou la généraliser, jamais de parallèle. Lire `API.md` pour savoir quelle base/endpoint fournit la donnée.
 - Ne jamais passer un gros script de patch en heredoc bash (tronqué silencieusement) : l'écrire via `write_file` dans `price_cache/` puis `python price_cache/patch_x.py`.
