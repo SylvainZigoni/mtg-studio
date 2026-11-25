@@ -4,6 +4,8 @@
 
 Avant de commencer n'importe quelle tâche, lire obligatoirement gotchas.md
 
+Skills réutilisables dans `skills/<nom>/SKILL.md` : les invoquer quand la tâche correspond à leur `description` (index dans `skills/README.md`).
+
 Application web locale de collection Magic: The Gathering + méta MTGTop8 2026.
 Dossier : `App MTG`, lancée avec `node server/server.js` (ou `npm start`, Node >= 22.5, zéro dépendance npm), ouverte sur http://localhost:3000 (Ctrl+F5 pour vider le cache). Windows, machine de Sylvain.
 
