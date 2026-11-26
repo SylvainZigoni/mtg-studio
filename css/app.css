@@ -325,8 +325,10 @@ input[type=range]{accent-color:var(--accent)}
 #t8results{flex:1;min-height:0;display:flex;flex-direction:column}
 @media(max-width:1100px){.t8grid{grid-template-columns:1fr}.t8grid>*{height:auto}.archlist{min-height:var(--t8list-h)}.evscroll{height:var(--t8list-h)}}
 .t8kpi{text-align:center;padding:10px 16px;height:var(--t8kpi-h);display:flex;flex-direction:column;justify-content:center}
-.t8kpi .big{font-size:27px;font-weight:700;color:var(--accent);line-height:1.25}
-.t8kpi .big2{font-size:20px;font-weight:600;margin-top:4px}
+.t8kpi .big{font-size:20px;font-weight:700;color:var(--accent);line-height:1.25}
+.t8kpi .big2{font-size:14px;font-weight:600;margin-top:4px}
+.t8kpi .hint{font-size:12px}                 /* label du spinner pendant la recherche */
+.t8kpi .spin{width:26px;height:26px;border-width:3px}   /* roue du spinner, plus petite dans le KPI */
 .archlist{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-top:8px}
 .t8loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:1;min-height:0}   /* spinner .spin (défini plus haut) pendant la requête */
 .arch-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:13px}
