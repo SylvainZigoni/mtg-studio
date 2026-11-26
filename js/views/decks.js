@@ -15,9 +15,9 @@ import { R, S } from '../core/registry.js';
      +99/+199 = "plus de N" ; tournois sans nb de joueurs toujours
      visibles), recherche tournoi (bouton Go intégré au champ,
      nom + lieu, insensible casse/accents), champ joueur actif,
-     champ carte actif (filtre serveur card= : decks contenant la
-     carte, qm/qs en d[13]/d[14], noms proches cliquables), jauge
-     de dates à 2 curseurs
+     champ carte actif (filtre serveur card= : nom exact, casse
+     ignorée — decks contenant la carte ; rendu = mode joueur),
+     jauge de dates à 2 curseurs
      (défaut = pleine plage des events)
    - KPI + panneau Archétype calculés sur TOUS les decks filtrés
    - tableau des tournois : colonnes Date 12% / Format 6% / Nom 45% /
@@ -33,8 +33,6 @@ const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['pl
 const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
 const T8_PCOLS = [['player','Nom'],['date','Date'],['fmt','Format'],['evname','Nom du tournoi'],['deck','Deck joué'],['rank','Rang'],['players','Joueurs']];
 const T8_PCOLW = [14, 12, 8, 30, 20, 6, 10];   // % : nom, date, format, tournoi, deck, rang, joueurs
-const T8_CCOLS = [...T8_PCOLS, ['card','Carte']];   // mode carte : + colonne qté de la carte cherchée
-const T8_CCOLW = [13, 11, 7, 27, 19, 5, 8, 10];   // % : nom, date, format, tournoi, deck, rang, joueurs, carte
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
 let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', page:1, cursors:[], open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
@@ -65,14 +63,11 @@ async function t8fetch(){
   q.set('view', (t8.mode==='pl' || t8.mode==='cd') ? 'decks' : 'events');
   if(t8.fmts.length) q.set('fmt', t8.fmts.join(','));
   if(t8.players && t8.players!=='ALL') q.set('players', t8.players);
-  if(t8.mode==='cd'){ if(t8.q) q.set('card', t8.q); }   // recherche par carte : param card= (pas q)
+  if(t8.mode==='cd'){ if(t8.q) q.set('card', t8.q); }   // recherche par carte : param card= exact (pas q)
   else if(t8.q) q.set('q', t8.q);
   if(t8.dateFrom!=null) q.set('dateFrom', isoOf(t8.dateFrom));
   if(t8.dateTo!=null) q.set('dateTo', isoOf(t8.dateTo));
-  let sort = t8.sortCol;
-  if(t8.sortCol==='deck') sort = 'name';
-  if(t8.sortCol==='card') sort = 'cardqty';   // tri par qté de la carte recherchée
-  q.set('sort', sort);
+  q.set('sort', t8.sortCol==='deck' ? 'name' : t8.sortCol);
   q.set('dir', t8.sortDir);
   q.set('page', String(t8.page||1));
   q.set('limit', '25');
@@ -182,8 +177,7 @@ async function vDecks(app){
 }
 
 async function renderT8Results(app){
-  if(t8.mode==='pl') return renderT8Player(app);
-  if(t8.mode==='cd') return renderT8Cards(app);
+  if(t8.mode==='pl' || t8.mode==='cd') return renderT8Player(app);   // mode carte = mêmes colonnes/rendu que le mode joueur
   const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
   if(!box) return;
   let j;
@@ -253,7 +247,7 @@ async function renderT8Player(app){
   catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
   if(!j || !j.ok){ box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return; }
   const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), et = j.eventsTotal || 0;
-  kpi.innerHTML = `<div class="big">${total} deck${total>1?'s trouvés':' trouvé'}</div><div class="big2">${et} tournoi${et>1?'s':''}</div>`;
+  kpi.innerHTML = `<div class="big">${total} deck${total>1?'s trouvés':' trouvé'}</div><div class="big2">${et} tournoi${et>1?'s':''}${t8.mode==='cd' ? ` · « ${esc(t8.q)} »` : ''}</div>`;
   const byFmt = new Map();
   (j.archs || []).forEach(a => {
     const f = fmtShort(a.fmt), an = a.arch || '(sans archétype)';
@@ -291,70 +285,6 @@ async function renderT8Player(app){
   if(pgp) pgp.onclick = () => { if(t8.page > 1){ t8.page--; renderT8Results(app); } };
   if(pgn) pgn.onclick = () => { if(t8.page < pages){ t8.page++; renderT8Results(app); } };
   box.querySelectorAll('tr.dkrow2').forEach(r => r.onclick = () => openDeckPage(+r.dataset.did));
-}
-
-/* mode 'cd' : decks contenant la carte recherchée (filtre serveur card=), avec la
-   qté de la carte dans chaque deck (d[13]=main, d[14]=side) et les noms proches
-   (matched) cliquables pour affiner sur un nom exact */
-async function renderT8Cards(app){
-  const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
-  if(!box) return;
-  let j;
-  try{ j = await t8fetch(); }
-  catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
-  if(!j || !j.ok){ box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return; }
-  const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), et = j.eventsTotal || 0;
-  const matched = j.matched || [];
-  kpi.innerHTML = `<div class="big">${total} deck${total>1?'s trouvés':' trouvé'}</div>
-    <div class="big2">${et} tournoi${et>1?'s':''} · « ${esc(t8.q)} »</div>`;
-  const byFmt = new Map();
-  (j.archs || []).forEach(a => {
-    const f = fmtShort(a.fmt), an = a.arch || '(sans archétype)';
-    if(!byFmt.has(f)) byFmt.set(f, new Map());
-    const m = byFmt.get(f);
-    m.set(an, (m.get(an) || 0) + a.n);
-  });
-  const fmts = [...byFmt.keys()].sort();
-  let ahtml = '';
-  for(const f of fmts){
-    const m = byFmt.get(f);
-    const items = [...m.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
-    ahtml += `<div class="arch-fmt">${esc(f)}</div>` + items.map(([a,n]) =>
-      `<div class="arch-item" data-arch="${esc(a)}" data-fmt="${esc(f)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${total ? Math.round(n/total*100) : 0}%</span></div>`).join('');
-  }
-  arch.innerHTML = ahtml || '<p class="hint">Aucun deck ne correspond aux filtres.</p>';
-  const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_CCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
-  const rows = j.rows.map(d => {
-    const qm = d[13]||0, qs = d[14]||0;
-    const cardCell = (qm ? qm+'x' : '') + (qs ? (qm?' + ':'') + qs+'x side' : '') || '—';
-    return `<tr class="dkrow2" data-did="${d[0]}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date" style="text-align:center">${frDate(d[8])}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank" style="text-align:center">#${d[2]}</td><td class="c-players" style="text-align:center">${d[12]==null?'—':d[12]}</td><td class="c-card" style="text-align:center">${esc(cardCell)}</td></tr>`;
-  }).join('');
-  box.innerHTML = `${matched.length ? `<div class="hint" style="margin-bottom:6px">${matched.length} nom${matched.length>1?'s proches':' proche'} (cliquez pour affiner) :</div>
-  <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${matched.map(m => `<span class="binderchip${m.card===t8.q?' active':''}" data-card="${esc(m.card)}" title="${m.decks} decks · ${m.qty} exemplaires">${esc(m.card)} <span class="pill">${m.decks}</span></span>`).join('')}</div>` : ''}
-  <div class="evscroll"><table class="evtable ptable"><colgroup>${T8_CCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_CCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="8" class="hint">Aucun deck ne contient « ' + esc(t8.q) + ' ».</td></tr>'}</tbody></table></div>
-  <div class="row" style="justify-content:space-between;margin-top:8px">
-    <button class="btn ghost" id="pgprev" ${j.page<=1?'disabled':''}>← Précédent</button>
-    <span class="hint">Page ${j.page}/${pages} · ${total} résultats</span>
-    <button class="btn ghost" id="pgnext" ${j.page>=pages?'disabled':''}>Suivant →</button>
-  </div>`;
-  { const lr = j.rows[j.rows.length-1];   // curseur keyset = dernière ligne de la page
-    if(lr){ t8.cursors[t8.page-1] = lr[8]+'|'+lr[0]; t8.cursors.length = t8.page; } }
-  box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
-    const c = h.dataset.col;
-    if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
-    else { t8.sortCol = c; t8.sortDir = (c==='date' || c==='card') ? 'desc' : 'asc'; }
-    t8.page = 1; t8.cursors = []; renderT8Results(app);
-  });
-  const pgp = box.querySelector('#pgprev'), pgn = box.querySelector('#pgnext');
-  if(pgp) pgp.onclick = () => { if(t8.page > 1){ t8.page--; renderT8Results(app); } };
-  if(pgn) pgn.onclick = () => { if(t8.page < pages){ t8.page++; renderT8Results(app); } };
-  box.querySelectorAll('tr.dkrow2').forEach(r => r.onclick = () => openDeckPage(+r.dataset.did));
-  box.querySelectorAll('[data-card]').forEach(ch => ch.onclick = () => {
-    t8.q = ch.dataset.card;
-    const inp = app.querySelector('#t8q-cd');
-    if(inp) inp.value = t8.q;
-    t8.page = 1; t8.cursors = []; renderT8Results(app);
-  });
 }
 
 function openDeckPage(did){

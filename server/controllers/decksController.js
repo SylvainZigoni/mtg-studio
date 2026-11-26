@@ -1,7 +1,7 @@
 /* Endpoints decks MTGTop8 servis depuis la snapshot SQLite (readOnly) :
-   /api/decks/search (paginé ; FTS5 trigram pour q >= 3 cars ; filtre card= via cards_fts
-   + ix_cards_card, lignes enrichies qm/qs en d[13]/d[14] et matched[] ; cache des COUNT
-   par version de la base ; pagination keyset en tri date via afterDate/afterId),
+   /api/decks/search (paginé ; FTS5 trigram pour q >= 3 cars ; filtre card= exact
+   casse ignorée via ix_cards_card ; cache des COUNT par version de la base ;
+   pagination keyset en tri date via afterDate/afterId),
    /api/decks/deck?did=, /api/decks/meta, /api/decks/stats, /api/decks/playable (worker + cache),
    /api/decks/arch, /api/decks/topcards. */
 import { sendJson} from '../utils/http.js';
@@ -57,7 +57,6 @@ const escLike = s => s.replace(/[\\%_]/g, c => '\\' + c);
 const SORT_DECKS = {
   date: 'e.event_date', rank: 'd.rank', name: 'd.deck_name', arch: 'd.archetype',
   player: 'd.player', players: 'e.players', fmt: 'd.format', evname: 'e.name',
-  cardqty: 'cd.qm',   // tri par quantité de la carte recherchée (filtre card= uniquement)
 };
 const SORT_EVENTS = {
   date: 'e.event_date', players: 'e.players', name: 'e.name', place: 'e.place', fmt: 'e.format',
@@ -83,36 +82,13 @@ function cachedCounts(c, key, build) {
   return data;
 }
 
-/* Résolution des noms de cartes pour le filtre card= (view=decks uniquement) :
-   qs >= 3 cars -> FTS5 trigram cards_fts (LIKE accéléré par le tokenizeur trigram),
-   sinon LIKE sur le dictionnaire cards ; repli sur scan LIKE de deck_cards si la base
-   n'a pas encore la migration user_version=2 (cards_fts absente).
-   Renvoie { names:[top 25 noms par fréquence], matched:[{card, decks, qty}] }. */
-function resolveCardNames(c, qs) {
-  const like = '%' + escLike(qs) + '%';
-  const hasFts = !!c.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cards_fts'").get();
-  let cand;
-  if (hasFts) {
-    const from = qs.length >= 3 ? 'cards_fts f JOIN cards c ON c.rowid = f.rowid' : 'cards c';
-    const wh = qs.length >= 3 ? "f.card LIKE ? ESCAPE '\\'" : "lower(c.card) LIKE ? ESCAPE '\\'";
-    cand = c.prepare('SELECT c.card FROM ' + from + ' WHERE ' + wh + ' ORDER BY c.card LIMIT 200').all(like).map(r => r.card);
-  } else {
-    cand = c.prepare("SELECT DISTINCT card FROM deck_cards WHERE lower(card) LIKE ? ESCAPE '\\' LIMIT 200").all(like).map(r => r.card);
-  }
-  const matched = cand.length
-    ? c.prepare('SELECT card, COUNT(DISTINCT did) decks, SUM(qty) qty FROM deck_cards WHERE card IN (' + cand.map(() => '?').join(',') + ') GROUP BY card ORDER BY decks DESC, qty DESC LIMIT 25')
-        .all(...cand).map(r => ({ card: r.card, decks: r.decks, qty: r.qty }))
-    : [];
-  return { names: matched.map(m => m.card), matched };
-}
-
 /* Filtres decks. q >= 3 caractères -> FTS5 trigram (decks_fts, LIKE insensible à la casse
    grâce au tokenizeur trigram) ; q < 3 caractères -> LIKE classique sur decks.
-   cardNames (filtre card=) : null = pas de filtre carte, [] = aucun nom ne matche
-   (1=0), sinon JOIN sur les decks contenant au moins un des noms (avec qm/qs).
+   card= (view=decks) : filtre exact, casse ignorée — ne garde que les decks dont
+   deck_cards contient exactement ce nom (index ix_cards_card ; nom inconnu = 0 deck).
    Renvoie { from, where, args } (args des JOIN en tête, avant ceux du WHERE).
    idcol = colonne de tiebreak du keyset. */
-function filtersDecks(q, idcol, cardNames) {
+function filtersDecks(q, idcol) {
   const qs = String(q.q || '').trim();
   const useFts = qs.length >= 3;
   let from = useFts
@@ -121,11 +97,10 @@ function filtersDecks(q, idcol, cardNames) {
   const where = ['d.fetched = 1'];
   const args = [];
   const cargs = [];
-  if (cardNames) {
-    if (cardNames.length) {
-      from += " JOIN (SELECT did, SUM(CASE WHEN board='main' THEN qty ELSE 0 END) qm, SUM(CASE WHEN board='side' THEN qty ELSE 0 END) qs FROM deck_cards WHERE card IN (" + cardNames.map(() => '?').join(',') + ') GROUP BY did) cd ON cd.did = d.did';
-      cargs.push(...cardNames);
-    } else where.push('1 = 0');
+  const cardQ = String(q.card || '').trim();
+  if (cardQ) {
+    from += ' JOIN (SELECT DISTINCT did FROM deck_cards WHERE card = ? COLLATE NOCASE) cd ON cd.did = d.did';
+    cargs.push(cardQ);
   }
   const fmts = String(q.fmt || '').split(',').map(s => s.trim()).filter(Boolean);
   if (fmts.length) { where.push('d.format IN (' + fmts.map(() => '?').join(',') + ')'); args.push(...fmts); }
@@ -189,13 +164,8 @@ export function apiDecksSearch(req, res) {
   const keyset = !!q.afterDate;
 
   if (view === 'decks') {
-    let cardNames = null, matched = null;
-    const cardQ = String(q.card || '').trim();
-    if (cardQ) { const r = resolveCardNames(c, cardQ); matched = r.matched; cardNames = r.names; }
-    const withCard = !!(cardNames && cardNames.length);
-    const { from, where, args } = filtersDecks(q, 'd.did', cardNames);
-    let sortCol = SORT_DECKS[q.sort] || 'e.event_date';
-    if (sortCol === 'cd.qm' && !withCard) sortCol = 'e.event_date';   // tri carte sans filtre card=
+    const { from, where, args } = filtersDecks(q, 'd.did');
+    const sortCol = SORT_DECKS[q.sort] || 'e.event_date';
     const ck = 'decks|' + from + '|' + where + '|' + args.map(String).join('|');
     const counts = cachedCounts(c, ck, () => ({
       total: c.prepare('SELECT COUNT(*) n FROM ' + from + ' WHERE ' + where).get(...args).n,
@@ -203,13 +173,10 @@ export function apiDecksSearch(req, res) {
       archs: c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM ' + from + ' WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
         .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n })),
     }));
-    const sel = 'SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players' + (withCard ? ', cd.qm, cd.qs' : '');
-    const rows = c.prepare(sel + ' FROM ' + from + ' WHERE ' + where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
+    const rows = c.prepare('SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players FROM ' + from + ' WHERE ' + where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
       .all(...args, limit, ...(keyset ? [] : [(page - 1) * limit]));
-    return sendJson(res, 200, { ok: true, view, total: counts.total, eventsTotal: counts.eventsTotal, archs: counts.archs, ...(matched ? { matched } : {}), page, limit,
-      rows: rows.map(r => withCard
-        ? [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player, r.name, r.place, r.event_date, r.eid, '', '', r.players, r.qm || 0, r.qs || 0]
-        : [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player, r.name, r.place, r.event_date, r.eid, '', '', r.players]) });
+    return sendJson(res, 200, { ok: true, view, total: counts.total, eventsTotal: counts.eventsTotal, archs: counts.archs, page, limit,
+      rows: rows.map(r => [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player, r.name, r.place, r.event_date, r.eid, '', '', r.players]) });
   }
 
   const { where, args } = filtersEvents(q);
