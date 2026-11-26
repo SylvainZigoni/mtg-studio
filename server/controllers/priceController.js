@@ -11,7 +11,16 @@ import { ROOT, PRICES_DB, DB_PATH } from '../utils/paths.js';
 
 const MARKET_WINDOWS = { '1w': 7, '1m': 30, '1y': 365, '3y': 1095, '5y': 1825, '10y': 3650, 'rel': null };
 const MARKET_TTL = 12 * 3600;
-const marketCache = new Map(); // "scope|w" -> {ts, result}
+const marketCache = new Map(); // "scope|w|limit" -> {ts, mtime, result}
+
+/* mtime de prices.db en incluant le WAL (price_seed.py écrit en WAL : le .db principal ne bouge pas) */
+function pricesMtimeMs() {
+  let m = 0;
+  for (const ext of ['', '-wal', '-shm']) {
+    try { m = Math.max(m, fs.statSync(PRICES_DB + ext).mtimeMs); } catch {}
+  }
+  return m;
+}
 
 const round2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
 const pct = (cur, old) => (old && cur) ? (cur / old - 1) : null;
@@ -72,12 +81,14 @@ export function apiMarket(req, res) {
   const w = req.query.w || '1m';
   if (!(w in MARKET_WINDOWS)) return sendJson(res, 400, { ok: false, error: 'fenêtre invalide' });
   const scope = req.query.scope || 'all';
-  const key = `${scope}|${w}`;
+  const limit0 = Math.min(Number(req.query.limit || 20) || 20, 50);
+  const key = `${scope}|${w}|${limit0}`;
   const now = Date.now() / 1000;
+  const pm = pricesMtimeMs();
   const hit = marketCache.get(key);
-  if (hit && now - hit.ts < MARKET_TTL) return sendJson(res, 200, hit.result);
+  if (hit && now - hit.ts < MARKET_TTL && hit.mtime === pm) return sendJson(res, 200, hit.result);
 
-  const limit = Math.min(Number(req.query.limit || 20) || 20, 50);
+  const limit = limit0;
   const days = MARKET_WINDOWS[w];
   const targetDay = days ? todayOrdinal() - days : null;
   const results = [];
@@ -126,7 +137,7 @@ export function apiMarket(req, res) {
     flop: [...uniq].sort((a, b) => a.pct - b.pct).slice(0, limit),
     n: uniq.length,
   };
-  marketCache.set(key, { ts: now, result: out });
+  marketCache.set(key, { ts: now, mtime: pm, result: out });
   sendJson(res, 200, out);
 }
 
@@ -378,7 +389,7 @@ export function apiMarketCards(req, res) {
   if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
   if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
   // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
-  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + dataMtimeMs();   // mtg_data.db + -wal/-shm (mode WAL : le .db principal ne bouge pas)
+  const mtime = pricesMtimeMs() + ':' + dataMtimeMs();   // prices.db (+ -wal/-shm, WAL) + mtg_data.db (+ -wal/-shm)
   const key = mtime + '|' + JSON.stringify({ ...q, from, to });
   const nowS = Date.now() / 1000;
   const hit = marketCardsCache.get(key);
@@ -485,7 +496,7 @@ export function apiMarketSets(req, res) {
   if (!pricesAvailable()) return sendJson(res, 503, { ok: false, error: 'prices.db absent.' });
   if (!from) return sendJson(res, 400, { ok: false, error: 'from/to requis (ordinals de jours)' });
   // cache invalidé si prices.db OU la collection (mtg_data.db) a changé
-  const mtime = fs.statSync(PRICES_DB).mtimeMs + ':' + dataMtimeMs();   // mtg_data.db + -wal/-shm (mode WAL : le .db principal ne bouge pas)
+  const mtime = pricesMtimeMs() + ':' + dataMtimeMs();   // prices.db (+ -wal/-shm, WAL) + mtg_data.db (+ -wal/-shm)
   const key = mtime + '|' + from + '|' + to;
   const nowS = Date.now() / 1000;
   const hit = marketSetsCache.get(key);
@@ -505,13 +516,14 @@ export function apiMarketSets(req, res) {
 
 /* Valeur totale de CHAQUE extension en une seule requête SQL depuis prices.db (cache 12h).
    Équivalent à la somme des prix Scryfall par set, mais instantané : pas d'appel API externe. */
-const setValsCache = { ts: 0, result: null };
+const setValsCache = { ts: 0, mtime: -1, result: null };
 export function apiSetvalues(req, res) {
   if (!pricesAvailable()) {
     return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez price_seed.py (voir README).' });
   }
   const now = Date.now() / 1000;
-  if (setValsCache.result && now - setValsCache.ts < MARKET_TTL) return sendJson(res, 200, setValsCache.result);
+  const pm = pricesMtimeMs();
+  if (setValsCache.result && now - setValsCache.ts < MARKET_TTL && setValsCache.mtime === pm) return sendJson(res, 200, setValsCache.result);
   const rows = getPricesDb().prepare(
     'SELECT c."set" AS code, SUM(COALESCE(s.last_norm, s.last_foil, 0)) AS v ' +
     'FROM cards c JOIN series s ON s.uuid = c.uuid GROUP BY c."set"'
@@ -520,24 +532,27 @@ export function apiSetvalues(req, res) {
   for (const r of rows) if (r.code) values[r.code] = round2(r.v);
   const out = { ok: true, n: Object.keys(values).length, values };
   setValsCache.ts = now;
+  setValsCache.mtime = pm;
   setValsCache.result = out;
   sendJson(res, 200, out);
 }
 
 /* bornes de prix (min/max) des cartes ayant une série dans prices.db — pour la jauge de filtre prix (cache 12h) */
-const priceRangeCache = { ts: 0, result: null };
+const priceRangeCache = { ts: 0, mtime: -1, result: null };
 export function apiPricerange(req, res) {
   if (!pricesAvailable()) {
     return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez price_seed.py (voir README).' });
   }
   const now = Date.now() / 1000;
-  if (priceRangeCache.result && now - priceRangeCache.ts < MARKET_TTL) return sendJson(res, 200, priceRangeCache.result);
+  const pm = pricesMtimeMs();
+  if (priceRangeCache.result && now - priceRangeCache.ts < MARKET_TTL && priceRangeCache.mtime === pm) return sendJson(res, 200, priceRangeCache.result);
   const r = getPricesDb().prepare(
     'SELECT MIN(COALESCE(last_norm, last_foil, 0)) AS mn, ' +
     'MAX(MAX(COALESCE(last_norm, 0), COALESCE(last_foil, 0))) AS mx FROM series'
   ).get();
   const out = { ok: true, min: r.mn || 0, max: r.mx || 0 };
   priceRangeCache.ts = now;
+  priceRangeCache.mtime = pm;
   priceRangeCache.result = out;
   sendJson(res, 200, out);
 }
@@ -576,7 +591,7 @@ export function apiCollvalue(req, res) {
 /* Jours historisés de prices.db (union des jours de tous les blobs), cache invalidé par le mtime. */
 let daysCache = { mtime: -1, result: null };
 function allHistorizedDays() {
-  const mtime = fs.statSync(PRICES_DB).mtimeMs;
+  const mtime = pricesMtimeMs();
   if (daysCache.result && daysCache.mtime === mtime) return daysCache.result;
   const c = getPricesDb();
   const days = new Set();
@@ -610,7 +625,7 @@ let lastMapCache = { mtime: -1, result: null };
 export function apiPricesLast(req, res) {
   if (!pricesAvailable())
     return sendJson(res, 503, { ok: false, error: 'prices.db absent : lancez une mise a jour (Parametres).' });
-  const mtime = fs.statSync(PRICES_DB).mtimeMs;
+  const mtime = pricesMtimeMs();
   if (lastMapCache.result && lastMapCache.mtime === mtime) return sendJson(res, 200, lastMapCache.result);
   const c = getPricesDb();
   const rows = c.prepare('SELECT c.scryfall_id AS id, s.last_norm AS n, s.last_foil AS f FROM cards c JOIN series s ON s.uuid = c.uuid WHERE s.last_norm IS NOT NULL OR s.last_foil IS NOT NULL').all();
