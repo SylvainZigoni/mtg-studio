@@ -53,19 +53,15 @@ MTG Studio/                  racine du dépôt
 └── AGENTS.md                ce fichier
 ```
 
-## Invariants d'architecture
+## Contexte par zone (AGENTS.md imbriqués)
 
-- **3 bases, 3 rôles** (détail `API.md` §0) : `mtg_data.db` (état ; `SYNC_KEYS` = `mtg_collection`, `mtg_binders`, `mtg_matches`, `mtg_custom_tags`, `mtg_decks`), `prices.db` (prix + métas cartes), `mtgtop8.sqlite` (decks servis par `/api/decks/search|deck|meta|stats|playable|arch|topcards`, FTS5 trigram + index date). `decks.json.gz` n'est plus utilisé.
-- **Prix affichés côté client** = `GET /api/prices/last` → map `scryfall_id -> [last_norm, last_foil]` chargée au boot dans `js/core/pricedb.js` (`dbPrice`). Repli Scryfall UNIQUEMENT pour le calcul de valeur d'un set si `prices.db` est absent. MTGJSON ne publie que ~3 mois d'historique → accumulation : point quotidien `today` + fusion `weekly` (comble tout trou ≤ 3 mois).
-- **Serveur** : une `register*Routes(app)` par fichier dans `server/routes/` → contrôleurs dans `server/controllers/` ; réponses `{ok:true,…}` / `{ok:false,error}` ; caches 12 h invalidés par le **mtime des fichiers lus** (WAL : max des mtime `.db` + `-wal` + `-shm`, `dataMtimeMs()` dans `server/utils/db.js`) ; statique `/` → `index.html` (`Cache-Control: no-cache`, `Last-Modified` + 304 sinon).
-- **Client** : `index.html` charge `css/reset.css` PUIS `css/app.css`, puis `<script type="module" src="js/main.js">` ; modules ES, le registry `R`/`S` (`js/core/registry.js`) évite les imports circulaires entre vues ; `store.set` (`js/core/store.js`) ne fait pushState que si `window.__booted` ; index DECKS : d[3]=nom, d[4]=archétype, d[5]=joueur, d[9]=eid, d[10]/d[11]=main/side, d[12]=players ; caches `sfCache`/print par `norm(name)`.
-- **Popup carte unique** (`js/views/cardinfo.js`, `R.showCardInfo(name, _, ctx)`) : tout clic sur une carte ouvre la modale `.wide` 1060 px (`openAddPopup` est supprimé). Helpers clés : dropdown langue custom `.langdd`, `R.drawSpark(cv, pts, opts)` multi-séries, `R.rarityDotHTML` (toujours scopée, ex. `.cp-right h2 .rarity-dot`), `sfSetPrints` renvoie le print complet, `langFlagHTML` → `/assets/icons/flags/<code>.svg`.
-- **Thèmes UI** : `css/themes.css` (sélecteurs `html[data-theme="…"]`, chargé après `app.css`), liste/apply dans `js/core/themes.js`, sélecteur dans la vue Paramètres ; persistance localStorage (`mtg_theme`) + script inline anti-FOUC dans `index.html` ; défaut `darkmode`.
+Vibe charge automatiquement l'AGENTS.md du dossier touché (découverte lazy) :
 
-## Pièges (résumé — le détail dans gotchas.md)
+- `server/AGENTS.md` — serveur : routage, conventions de réponse, caches mtime/WAL, pièges SQLite
+- `js/AGENTS.md` — client : modules ES, `esc()`, prix = `prices.db` uniquement, index DECKS, popup carte, thèmes
+- Communs : `API.md` (endpoints + schémas des 3 BDD), `gotchas.md` (pièges, lu avant toute tâche), `skills/` (procédures)
 
-- SQLite : `"set"` est un mot-clé → toujours quoter ; `last_date` a une affinité TEXT ; blobs lus en `Uint8Array` (`Buffer.from(blob)`) ; `new DatabaseSync(path, {readOnly:true})` pour prices.db ; `PRAGMA journal_mode=WAL` sur mtg_data.db.
-- Blob de prix `prices.db.series` : `uint32 count` puis paires `(int32 jour_ordinal, float32 prix)` little-endian — Node : `blobPoints`/`blobAt` (`server/utils/pricesDb.js`) ; Python : slice exact `memoryview(blob)[4:4+8*n]`, prix à offset +4.
+Invariants clés : 3 bases = `mtg_data.db` (état, `SYNC_KEYS`) / `prices.db` (prix + métas) / `mtgtop8.sqlite` (decks) ; prix affichés côté client = `GET /api/prices/last` → `dbPrice()` ; decks servis à la demande via `/api/decks/search|deck|meta|stats|playable|arch|topcards` (`decks.json.gz` abandonné) ; MTGJSON ~3 mois d'historique → `price_seed.py today` quotidien + `weekly`.
 
 ## Git
 
