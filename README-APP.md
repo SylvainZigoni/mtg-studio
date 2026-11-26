@@ -53,7 +53,7 @@ du navigateur et le badge affiche « ⚠ hors serveur ».
 - **Cartes similaires** : basées sur ce que fait la carte (texte d'oracle),
   pas seulement type/coût/couleur.
 - **Menu burger latéral** avec recherche globale : cartes (toutes langues),
-  decks MTGTop8 (nom/archétype/joueur), decks perso.
+  decks MTGTop8 (nom/archétype/joueur/carte contenue), decks perso.
 - **Decks perso** : création, ajout de cartes (main/side), commentaires,
   historique automatique des modifications (changelog daté), comparaison
   avec votre collection.

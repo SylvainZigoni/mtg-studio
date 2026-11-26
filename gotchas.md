@@ -15,6 +15,14 @@ Spécifique à cette session (Vibe) : ne jamais copier-coller une ancre depuis `
 - `"set"` est un mot-clé → toujours quoter `"set"` ; `last_date` a une affinité TEXT.
 - Blob de prix (`prices.db.series`) : `uint32 count` puis paires `(int32 jour_ordinal, float32 prix)` little-endian — décoder avec `blobPoints`/`blobAt` (`server/utils/pricesDb.js`).
 
+### Fichiers servis en HTTP
+
+- Le middleware statique bloque les bases par **extension** : `.db`, `.sqlite`, `.sqlite3` + sidecars `-wal`/`-shm`/`-journal` (regex dans `server/middleware/staticFiles.js`). Avant 2026-11-27, seul `.db` était bloqué → `mtgtop8.sqlite` (197 Mo) et `mtg_data.db-wal` étaient servis en clair (200). Tester avec `curl -o /dev/null -w '%{http_code}' http://localhost:PORT/mtgtop8.sqlite` → attendu 404.
+
+### Python sqlite3 (scraper)
+
+- `sqlite3.connect()` ouvre une **transaction implicite** : un `close()` sans `commit()` fait un **ROLLBACK** — un backfill one-shot (ex. `PRAGMA user_version`) exécuté hors scraping est perdu silencieusement (les `executescript` committent, pas les `execute` suivants). Toujours `c.commit()` après un backfill (cf. `db()` dans `scraper.py`).
+
 ### Caches & mtime
 
 - Tout cache serveur est invalidé par le **mtime de tous les fichiers lus** : marché = `prices.db` **et** `mtg_data.db` (la collection change les quantités) ; decks = `mtgtop8.sqlite`.

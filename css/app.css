@@ -313,14 +313,27 @@ input[type=range]{accent-color:var(--accent)}
 .langdd-item:hover{background:var(--panel2)}
 
 /* ===== vue Deck MTG Top 8 : recherche de tournois (dev-top8_tournament) ===== */
-.t8grid{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
-@media(max-width:1100px){.t8grid{grid-template-columns:1fr}}
+/* Hauteur fixe identique en vh sur les 2 colonnes : calc(100vh - 230px)
+   (230px = header + barre de filtres) -> les 2 panneaux s'arrêtent toujours
+   au même endroit, scroll interne dans chacun (archlist / evscroll) */
+.t8grid{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:stretch}
+.t8grid>*{height:calc(100vh - 230px)}
+.t8grid>div:first-child{display:flex;flex-direction:column}
+.t8grid>div:first-child>.panel:last-child{flex:1;min-height:0;display:flex;flex-direction:column}
+.t8grid .archpanel{margin-bottom:0}   /* même bas que le panneau des résultats (margin-bottom:0 des 2 côtés) */
+.t8grid>.panel:last-child{display:flex;flex-direction:column;overflow:hidden;margin-bottom:0}
+#t8results{flex:1;min-height:0;display:flex;flex-direction:column}
+@media(max-width:1100px){.t8grid{grid-template-columns:1fr}.t8grid>*{height:auto}.archlist{min-height:var(--t8list-h)}.evscroll{height:var(--t8list-h)}}
 .t8kpi{text-align:center;padding:10px 16px;height:var(--t8kpi-h);display:flex;flex-direction:column;justify-content:center}
-.t8kpi .big{font-size:27px;font-weight:700;color:var(--accent);line-height:1.25}
-.t8kpi .big2{font-size:20px;font-weight:600;margin-top:4px}
-.archlist{height:var(--t8list-h);overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-top:8px}
+.t8kpi .big{font-size:20px;font-weight:700;color:var(--accent);line-height:1.25}
+.t8kpi .big2{font-size:14px;font-weight:600;margin-top:4px}
+.t8kpi .hint{font-size:12px}                 /* label du spinner pendant la recherche */
+.t8kpi .spin{width:26px;height:26px;border-width:3px}   /* roue du spinner, plus petite dans le KPI */
+.archlist{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-top:8px}
+.t8loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:1;min-height:0}   /* spinner .spin (défini plus haut) pendant la requête */
 .arch-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:13px}
 .arch-item:hover{background:var(--panel2)}
+.arch-item.active{background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}   /* archétype sélectionné comme filtre */
 .arch-item .hint{white-space:nowrap}
 .dd{position:relative}
 .ddmenu{position:absolute;top:calc(100% + 6px);left:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px;display:none;z-index:60;min-width:210px;max-height:320px;overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,.4)}
@@ -357,7 +370,10 @@ tr.dkrow .arch{color:var(--accent2);font-weight:600}
 .gosearch{position:relative;display:inline-flex}
 .gosearch input[type=text]{min-width:180px;padding-right:46px}
 .gosearch .btn{position:absolute;top:0;right:0;bottom:0;height:auto;transform:none;padding:0 12px;font-size:13px;border:none;border-radius:0 8px 8px 0}
-.evscroll{height:calc(var(--t8list-h) + var(--t8kpi-h) + 16px);overflow-y:auto}
+/* en 2 colonnes : evscroll remplit l'espace restant du panneau (flex), min 140px
+   pour garder le tableau visible ; en 1 colonne (media query ci-dessus) : hauteur
+   fixe --t8list-h */
+.evscroll{flex:1 1 auto;min-height:140px;overflow-y:auto}
 .evtable{table-layout:fixed}
 .evtable thead th{position:sticky;top:0;background:var(--panel);z-index:2}
 .evtable td{overflow:hidden}
