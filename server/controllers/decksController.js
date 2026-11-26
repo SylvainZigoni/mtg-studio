@@ -149,6 +149,14 @@ function filtersDecks(q, idcol, withKeyset) {
     args.push(like, like, like);
   }
   if (q.eid) { where.push('d.eid = ?'); args.push(parseInt(q.eid, 10) || 0); }
+  // evq = recherche texte "tournoi" (nom + lieu) appliquée en view=decks (ex. mode ev
+  // avec filtre archétype : le tableau passe en decks mais conserve le filtre tournoi)
+  const evq = String(q.evq || '').trim();
+  if (evq) {
+    const like = '%' + escLike(evq.toLowerCase()) + '%';
+    where.push("(lower(e.name || ' ' || COALESCE(e.place, '')) LIKE ? ESCAPE '\\')");
+    args.push(like);
+  }
   const arch = String(q.arch || '').trim();
   if (arch) {
     if (arch === '(sans archétype)') where.push("(d.archetype IS NULL OR d.archetype = '')");

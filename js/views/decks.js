@@ -58,13 +58,18 @@ function t8dateBounds(){
   return {min:0, max:0};
 }
 
+/* view=decks dès qu'un archétype est cliqué (même en mode tournoi) -> tableau identique au mode joueur */
+const t8IsDecks = () => t8.mode!=='ev' || !!t8.arch;
+
 /* appel paginé à /api/decks/search avec l'état courant des filtres t8 */
 async function t8fetch(){
   const q = new URLSearchParams();
-  q.set('view', (t8.mode==='pl' || t8.mode==='cd') ? 'decks' : 'events');
+  const decks = t8IsDecks();
+  q.set('view', decks ? 'decks' : 'events');
   if(t8.fmts.length) q.set('fmt', t8.fmts.join(','));
   if(t8.players && t8.players!=='ALL') q.set('players', t8.players);
   if(t8.mode==='cd'){ if(t8.q) q.set('card', t8.q); }   // recherche par carte : param card= exact (pas q)
+  else if(t8.mode==='ev'){ if(t8.q) q.set(decks ? 'evq' : 'q', t8.q); }   // en view=decks, le texte tournoi filtre e.name/place via evq
   else if(t8.q) q.set('q', t8.q);
   if(t8.arch) q.set('arch', t8.arch);   // filtre archétype cliqué dans le panneau Archétype
   if(t8.dateFrom!=null) q.set('dateFrom', isoOf(t8.dateFrom));
@@ -130,7 +135,7 @@ async function vDecks(app){
       <div class="panel t8kpi" id="t8kpi"></div>
       <div class="panel archpanel"><h3 class="sub" style="margin-top:0">Archétype</h3><div class="archlist" id="t8arch"></div></div>
     </div>
-    <div class="panel"><h3 class="sub" style="margin-top:0">Liste des tournois</h3><div id="t8results"></div></div>
+    <div class="panel"><h3 class="sub" style="margin-top:0" id="t8title">Liste des tournois</h3><div id="t8results"></div></div>
   </div>`;
   if(!ddCloseBound){
     ddCloseBound = true;
@@ -212,9 +217,10 @@ async function vDecks(app){
 const t8spinHTML = label => `<div class="t8loading"><div class="spin"></div>${label ? `<p class="hint" style="margin:0">${label}</p>` : ''}</div>`;
 
 async function renderT8Results(app){
-  if(t8.mode==='pl' || t8.mode==='cd') return renderT8Player(app);   // mode carte = mêmes colonnes/rendu que le mode joueur
+  if(t8IsDecks()) return renderT8Player(app);   // modes joueur/carte, et mode tournoi avec un archétype cliqué : mêmes colonnes/rendu
   const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
   if(!box) return;
+  { const tt = app.querySelector('#t8title'); if(tt) tt.textContent = 'Liste des tournois'; }
   kpi.innerHTML = t8spinHTML(); arch.innerHTML = t8spinHTML(); box.innerHTML = t8spinHTML('Recherche en cours…');
   let j;
   try{ j = await t8fetch(); }
@@ -247,7 +253,7 @@ async function renderT8Results(app){
     <button class="btn ghost" id="pgnext" ${j.page>=pages?'disabled':''}>Suivant →</button>
   </div>`;
   { const lr = j.rows[j.rows.length-1];   // curseur keyset = dernière ligne de la page
-    if(lr){ t8.cursors[t8.page-1] = t8.mode==='pl' ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
+    if(lr){ t8.cursors[t8.page-1] = t8IsDecks() ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
@@ -290,7 +296,8 @@ async function renderT8Player(app){
   catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
   if(!j || !j.ok){ box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return; }
   const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), et = j.eventsTotal || 0;
-  kpi.innerHTML = `<div class="big">${fmtN(total)} deck${total>1?'s trouvés':' trouvé'}</div><div class="big2">${fmtN(et)} tournoi${et>1?'s':''}${t8.mode==='cd' ? ` · « ${esc(t8.q)} »` : ''}</div>`;
+  { const tt = app.querySelector('#t8title'); if(tt) tt.textContent = t8.mode==='ev' ? 'Decks de l’archétype' : 'Liste des decks'; }
+  kpi.innerHTML = `<div class="big">${fmtN(total)} deck${total>1?'s trouvés':' trouvé'}</div><div class="big2">${fmtN(et)} tournoi${et>1?'s':''}${t8.mode==='cd' ? ` · « ${esc(t8.q)} »` : ''}${t8.mode==='ev' && t8.arch ? ` · ${esc(t8.arch)}` : ''}</div>`;
   const byFmt = new Map();
   (j.archs || []).forEach(a => {
     const f = fmtShort(a.fmt), an = a.arch || '(sans archétype)';
@@ -323,7 +330,7 @@ async function renderT8Player(app){
     <button class="btn ghost" id="pgnext" ${j.page>=pages?'disabled':''}>Suivant →</button>
   </div>`;
   { const lr = j.rows[j.rows.length-1];   // curseur keyset = dernière ligne de la page
-    if(lr){ t8.cursors[t8.page-1] = t8.mode!=='ev' ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
+    if(lr){ t8.cursors[t8.page-1] = t8IsDecks() ? (lr[8]+'|'+lr[0]) : (lr.date+'|'+lr.eid); t8.cursors.length = t8.page; } }
   box.querySelectorAll('th[data-col]').forEach(h => h.onclick = () => {
     const c = h.dataset.col;
     if(t8.sortCol===c) t8.sortDir = t8.sortDir==='desc' ? 'asc' : 'desc';
