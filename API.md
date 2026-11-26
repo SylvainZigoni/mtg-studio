@@ -1,7 +1,9 @@
 # API.md — source de vérité des endpoints et des sources de données
 
 Serveur : `node server/server.js [port]` (défaut **3000**, Node ≥ 22.5, **zéro dépendance npm**).
-Routes enregistrées dans `server/routes/` (une fonction `register*Routes(app)` par fichier) → contrôleurs dans `server/controllers/`.
+Routes enregistrées dans `server/routes/index.js` (une `register*Routes(app)` par fichier dans `server/routes/`) → contrôleurs dans `server/controllers/`.
+
+**Rôle** : source de vérité des endpoints et des sources de données — tout endpoint ajouté/modifié/supprimé est documenté ici (§2 + §3) dans le même commit que le code (skills `api-design` + `docs-update`).
 
 **Règle d'or** : toute donnée affichée dans l'app provient d'une des 3 bases locales ci-dessous
 (ou de l'API Scryfall, côté client uniquement, pour les métadonnées). Ne jamais « recoder avec une
@@ -21,14 +23,14 @@ Schémas :
 
 - `mtg_data.db` : `state(k PK, v JSON, updated_at)` — clés synchronisées `SYNC_KEYS` = `mtg_collection`, `mtg_binders`, `mtg_matches`, `mtg_custom_tags`, `mtg_decks` ; `snapshots` (garde-fou des sauvegardes) ; `mkm_settings`.
 - `prices.db` :
-  - `cards(scryfall_id PK, uuid, name, "set", cn, released_at, artist, colors, type_line, cmc, rarity, image, reserved, lang)` — 100 % **papier** (111 046 cartes), `reserved` seedé via Scryfall `is:reserved` (MTGJSON v5 n'a plus le champ).
+  - `cards(scryfall_id PK, uuid, name, "set", cn, released_at, artist, colors, type_line, cmc, rarity, image, reserved, lang)` — 100 % **papier** (> 110 000 cartes), `reserved` seedé via Scryfall `is:reserved` (MTGJSON v5 n'a plus le champ).
   - `series(uuid PK, normal BLOB, foil BLOB, last_norm, last_foil, last_date)` — lien `cards.uuid = series.uuid`.
   - `meta(k, v)` — `today_done`, `last_weekly`, `run` (pid en cours).
   - **Blob de prix** : `uint32 count` (little-endian) puis `count` paires `(int32 jour_ordinal, float32 prix)` triées par jour. Décodage Node : `server/utils/pricesDb.js` (`blobPoints`, `blobAt`).
-  - `"set"` est un mot-clé SQL → **toujours quoter** `"set"`. `last_date` a affinité TEXT.
+  - Pièges SQLite (`"set"` à quoter, `last_date` TEXT) : voir `gotchas.md` → « Bases de données ».
 - `mtgtop8.sqlite` : `formats`, `events(eid PK, …, fetched)`, `decks(did PK, eid, …, fetched)`, `deck_cards(did, board, card, qty)`.
 
-**Jours** : ordinals proleptiques (ex. 739939 = 2026-11-19) ; conversion `dayStr()` côté serveur, `ordOf()/isoOf()` côté client (`js/core/pricedb.js`). MTGJSON publie avec 1 jour de décalage (AllPricesToday du J = prix du J-1).
+**Jours** : ordinals proleptiques (ex. 739939 = 2026-11-19) ; conversion `dayStr()` côté serveur, `ordOf()/isoOf()` côté client (`js/core/pricedb.js`). Décalage de publication MTGJSON (1 jour) : `gotchas.md` → « Données externes ».
 
 **Source de vérité côté client pour les prix affichés** : `GET /api/prices/last` → map `scryfall_id -> [last_norm, last_foil]`, chargée au boot dans `js/core/pricedb.js` (`dbPrice(sfid, foil)`). Repli Scryfall UNIQUEMENT pour le calcul de valeur de set si `prices.db` absent.
 
@@ -41,7 +43,7 @@ Schémas :
 ## 1. Conventions
 
 - Réponses JSON : `{ ok: true, … }` ; erreurs `{ ok: false, error }` avec 400 (params), 404 (inconnu), 409 (déjà en cours), 502 (calcul en échec), 503 (base absente — message dit quoi lancer).
-- Caches serveur : TTL 12 h (`MARKET_TTL`), invalidés par le **mtime des fichiers lus** (`prices.db` + `mtg_data.db` pour le marché, `mtgtop8.sqlite` pour les decks).
+- Caches serveur : TTL 12 h (`MARKET_TTL`), invalidés par le **mtime des fichiers lus** (`prices.db` + `mtg_data.db` pour le marché, `mtgtop8.sqlite` pour les decks) — piège WAL (mtime `-wal`/`-shm`, `dataMtimeMs()`) : `gotchas.md` → « Caches & mtime ».
 - Fichiers statiques : `/` → `index.html` (`Cache-Control: no-cache`), autres fichiers avec `Last-Modified` + `304` ; **les `*.db` ne sont jamais servis**.
 
 ---
@@ -81,7 +83,7 @@ Schémas :
 | `GET /api/setvalues` | — | `{ok, n, values:{CODE: €}}` — valeur totale par extension en 1 requête | `prices.db` (cache 12 h) |
 | `GET /api/pricerange` | — | `{ok, min, max}` — bornes des prix (jauge de filtre) | `prices.db` `series` (cache 12 h) |
 
-Seuils « aberrant » : un point de prix `<= 0` est ignoré (junk MTGJSON) ; les vrais prix bas (0,02–0,09 €) **comptent**. Si aucun prix valide à `from`, « avant » = 1er prix valide dans `[from, to]`.
+Seuils « aberrant » : `gotchas.md` → « Prix » (`<= 0 €` ignoré, vrais prix bas 0,02–0,09 € comptés). Si aucun prix valide à `from`, « avant » = 1er prix valide dans `[from, to]`.
 
 ### Mise à jour de prices.db (boutons Paramètres)
 
@@ -95,8 +97,13 @@ Seuils « aberrant » : un point de prix `<= 0` est ignoré (junk MTGJSON) ; les
 
 | Route | Params | Réponse | Source |
 |---|---|---|---|
-| `GET /api/decks` | — | dataset gzip (Content-Encoding automatique) : tableau de 13 champs `[did, format, rank, deck_name, archetype, player, event, place, event_date, eid, main, side, players]` — index documenté dans `js/core/decks.js` (d[3]=nom, d[4]=archétype, d[10]/d[11]=main/side…) | `mtgtop8.sqlite` (`fetched=1`), cache mtime + `If-Modified-Since` → 304 |
-| `GET /api/decks/meta` | — | `{ok, decks, events, cards, maxDate, formats:[{code,name,events,decks}]}` | `mtgtop8.sqlite` |
+| `GET /api/decks/meta` | — | `{ok, decks, events, cards, maxDate, minDate, formats:[{code,name,events,decks}]}` — compteurs (loader + panneau scraping) | `mtgtop8.sqlite` |
+| `GET /api/decks/search` | `view=events\|decks` (défaut events), `fmt` (CSV), `q` (≥ 3 cars → FTS5 trigram `decks_fts`, sinon LIKE), `dateFrom`, `dateTo`, `players=gt19\|gt49\|gt99\|gt199`, `eid`, `arch` (« (sans archétype) » accepté), `sort` (decks : date\|rank\|name\|arch\|player\|players\|fmt\|evname ; events : date\|players\|name\|place\|fmt), `dir=asc\|desc`, `page` (défaut 1), `limit` (1–200, défaut 25), keyset `afterDate`+`afterId` (tri date) | `{ok, view, total, eventsTotal\|decksTotal, archs:[{fmt,arch,n}], page, limit, rows}` — view=decks : rows = tableaux 13 champs (main/side vides) ; view=events : rows = `{eid,fmt,name,place,date,players,decks}`. Cache des COUNT invalidé par version de la base (`COUNT\|MAX(did)`) | `mtgtop8.sqlite` (`fetched=1`) ; 503 si absente |
+| `GET /api/decks/deck` | `did` (requis ; 400 sinon) | `{ok, deck:[13 champs avec main/side]}` — 404 si introuvable. Index 13 champs : d[0]=did, d[1]=format, d[2]=rank, d[3]=deck_name, d[4]=archetype, d[5]=player, d[6]=event, d[7]=place, d[8]=event_date, d[9]=eid, d[10]=main, d[11]=side, d[12]=players | `mtgtop8.sqlite` |
+| `GET /api/decks/stats` | `fmt` (optionnel) | `{ok, fmt, total, archetypes:[{arch,n}] (top 500), formats:[{code,n}]}` | `mtgtop8.sqlite` |
+| `GET /api/decks/playable` | `fmt=ALL\|CODE`, `minPct=0..100`, `q=`, `withSide=1`, `sort=pct\|date\|players`, `page`, `limit` (1–500, défaut 200) | decks « jouables » vs collection, calculés côté serveur en **worker** ; cache clé = version snapshot + mtime collection (`dataMtimeMs()`). `{ok, total, page, limit, cached, stale, builtAt, rows:[{did, pct, missing, d:[13 champs]}]}` ; **202 `{ok:false, building:true}`** si aucun cache (le client réessaie) | `mtgtop8.sqlite` + `mtg_data.db` |
+| `GET /api/decks/arch` | `fmt` (requis ; 400 sinon), `arch`, `side=1` | `{ok, fmt, arch, side, total, cards:[{card, decks, qty}] (top 200)}` — cartes agrégées de l'archétype (board main, + side si `side=1`) | `mtgtop8.sqlite` |
+| `GET /api/decks/topcards` | `fmt`, `dateFrom`, `dateTo`, `limit` (défaut 24, max 200) | `{ok, totalDecks, cards:[{card, qty}]}` — cartes les plus jouées (main) sur la période | `mtgtop8.sqlite` |
 
 ### Scraping MTGTop8 (boutons Paramètres)
 
@@ -127,9 +134,9 @@ Seuils « aberrant » : un point de prix `<= 0` est ignoré (junk MTGJSON) ; les
 | Recherche Marché (cartes) | `/api/market/cards` (100 % `prices.db`) | ne pas paginer Scryfall |
 | Recherche Marché (éditions) | `/api/market/sets` (100 % `prices.db` + collection `mtg_data.db`) | ne pas paginer Scryfall |
 | Top/flop, valeur collection, valeur par set | `/api/market`, `/api/collvalue`, `/api/setvalues` | — |
-| Decks metagame | `/api/decks` (+ `/api/decks/meta`) | ne pas relire `decks.json.gz` (abandonné) |
+| Decks metagame | `/api/decks/search` \| `/api/decks/deck` \| `/api/decks/meta` \| `/api/decks/stats` \| `/api/decks/playable` \| `/api/decks/arch` \| `/api/decks/topcards` | ne pas relire `decks.json.gz` (abandonné) ; plus de dataset complet servi |
 | Collection / decks perso / matchs | `/api/state` (SYNC_KEYS) → `js/core/store.js` | — |
 | Métadonnées carte, recherche avancée, autocomplete, images | API Scryfall **avec `game:paper`** (`js/core/scryfall.js`) | ne pas s'en servir pour les prix |
 | Vignettes | URL `cards.scryfall.io` construite depuis `scryfall_id` | `cards.image` est NULL pour certaines lignes |
 
-*Dernière mise à jour : 2026-11-21 (branches `dev-marche` / `dev-marche-extension` / `dev-zoom_carte`).*
+*Dernière revue : 2026-11-26.*
