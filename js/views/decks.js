@@ -306,9 +306,7 @@ async function renderT8Cards(app){
   const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), et = j.eventsTotal || 0;
   const matched = j.matched || [];
   kpi.innerHTML = `<div class="big">${total} deck${total>1?'s trouvés':' trouvé'}</div>
-    <div class="big2">${et} tournoi${et>1?'s':''} · « ${esc(t8.q)} »</div>
-    ${matched.length ? `<div class="hint" style="margin-top:6px">${matched.length} nom${matched.length>1?'s proches':' proche'} (cliquez pour affiner) :</div>
-    <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:4px">${matched.map(m => `<span class="binderchip${m.card===t8.q?' active':''}" data-card="${esc(m.card)}" title="${m.decks} decks · ${m.qty} exemplaires">${esc(m.card)} <span class="pill">${m.decks}</span></span>`).join('')}</div>` : ''}`;
+    <div class="big2">${et} tournoi${et>1?'s':''} · « ${esc(t8.q)} »</div>`;
   const byFmt = new Map();
   (j.archs || []).forEach(a => {
     const f = fmtShort(a.fmt), an = a.arch || '(sans archétype)';
@@ -331,7 +329,9 @@ async function renderT8Cards(app){
     const cardCell = (qm ? qm+'x' : '') + (qs ? (qm?' + ':'') + qs+'x side' : '') || '—';
     return `<tr class="dkrow2" data-did="${d[0]}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date" style="text-align:center">${frDate(d[8])}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank" style="text-align:center">#${d[2]}</td><td class="c-players" style="text-align:center">${d[12]==null?'—':d[12]}</td><td class="c-card" style="text-align:center">${esc(cardCell)}</td></tr>`;
   }).join('');
-  box.innerHTML = `<div class="evscroll"><table class="evtable ptable"><colgroup>${T8_CCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_CCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="8" class="hint">Aucun deck ne contient « ' + esc(t8.q) + ' ».</td></tr>'}</tbody></table></div>
+  box.innerHTML = `${matched.length ? `<div class="hint" style="margin-bottom:6px">${matched.length} nom${matched.length>1?'s proches':' proche'} (cliquez pour affiner) :</div>
+  <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${matched.map(m => `<span class="binderchip${m.card===t8.q?' active':''}" data-card="${esc(m.card)}" title="${m.decks} decks · ${m.qty} exemplaires">${esc(m.card)} <span class="pill">${m.decks}</span></span>`).join('')}</div>` : ''}
+  <div class="evscroll"><table class="evtable ptable"><colgroup>${T8_CCOLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_CCOLS.map(([c]) => th(c)).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="8" class="hint">Aucun deck ne contient « ' + esc(t8.q) + ' ».</td></tr>'}</tbody></table></div>
   <div class="row" style="justify-content:space-between;margin-top:8px">
     <button class="btn ghost" id="pgprev" ${j.page<=1?'disabled':''}>← Précédent</button>
     <span class="hint">Page ${j.page}/${pages} · ${total} résultats</span>
@@ -349,7 +349,7 @@ async function renderT8Cards(app){
   if(pgp) pgp.onclick = () => { if(t8.page > 1){ t8.page--; renderT8Results(app); } };
   if(pgn) pgn.onclick = () => { if(t8.page < pages){ t8.page++; renderT8Results(app); } };
   box.querySelectorAll('tr.dkrow2').forEach(r => r.onclick = () => openDeckPage(+r.dataset.did));
-  kpi.querySelectorAll('[data-card]').forEach(ch => ch.onclick = () => {
+  box.querySelectorAll('[data-card]').forEach(ch => ch.onclick = () => {
     t8.q = ch.dataset.card;
     const inp = app.querySelector('#t8q-cd');
     if(inp) inp.value = t8.q;
