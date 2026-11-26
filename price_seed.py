@@ -643,6 +643,13 @@ def update_today(force=False):
                         nb = bytes(ba)
                     else:
                         fb = bytes(ba)
+                elif day == last_day:   # re-run le même jour : remplace le dernier point
+                    ba = bytearray(blob)
+                    ba[4 + 8 * (cnt - 1):4 + 8 * cnt] = struct.pack("<if", day, pt[1])
+                    if col == "normal":
+                        nb = bytes(ba)
+                    else:
+                        fb = bytes(ba)
             con.execute("UPDATE series SET normal=?, foil=? WHERE uuid=?", (nb, fb, uuid))
             # last_* = queue reelle des blobs (source de verite) : jamais en retard sur les points ajoutes
             def _tail(blob):

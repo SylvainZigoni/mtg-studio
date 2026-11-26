@@ -100,7 +100,7 @@ function filtersDecks(q, idcol) {
   if (pmin) { where.push('(e.players IS NULL OR e.players = 0 OR e.players > ?)'); args.push(pmin); }
   if (qs) {
     const like = '%' + escLike(qs) + '%';
-    if (useFts) where.push('(f.player LIKE ? OR f.deck_name LIKE ? OR f.archetype LIKE ?)');
+    if (useFts) where.push("(f.player LIKE ? ESCAPE '\\' OR f.deck_name LIKE ? ESCAPE '\\' OR f.archetype LIKE ? ESCAPE '\\')");
     else where.push("(lower(d.player) LIKE ? ESCAPE '\\' OR lower(d.deck_name) LIKE ? ESCAPE '\\' OR lower(d.archetype) LIKE ? ESCAPE '\\')");
     args.push(like, like, like);
   }
@@ -131,7 +131,7 @@ function filtersEvents(q) {
   const qs = String(q.q || '').trim().toLowerCase();
   if (qs) {
     const like = '%' + escLike(qs) + '%';
-    where.push("(lower(e.name || ' ' || e.place) LIKE ? ESCAPE '\\')");
+    where.push("(lower(e.name || ' ' || COALESCE(e.place, '')) LIKE ? ESCAPE '\\')");
     args.push(like);
   }
   if (q.afterDate) {
