@@ -1,6 +1,6 @@
 # Skills du projet
 
-Chaque skill = un dossier `skills/<nom>/SKILL.md` avec un frontmatter :
+Dossier découvert par Vibe à chaque session. Chaque skill = un dossier `skills/<nom>/SKILL.md` avec un frontmatter :
 
 ```markdown
 ---
@@ -11,6 +11,8 @@ description: <QUAND invoquer ce skill — c'est le déclencheur>
 
 La `description` est cruciale : c'est elle qui décide si l'agent invoque le skill
 au bon moment. Plus elle est précise, mieux ça marche.
+
+**Ajouter un skill** : créer `skills/<nom>/SKILL.md` (frontmatter `name` + `description`-déclencheur) + une ligne dans le tableau ci-dessous, dans le **même commit** que le besoin (skill `docs-update`). La colonne « Quand l'invoquer » reprend le `description` du frontmatter — le frontmatter est la source unique, à synchroniser à chaque changement.
 
 Liste des skills (voir chaque SKILL.md pour la procédure) :
 

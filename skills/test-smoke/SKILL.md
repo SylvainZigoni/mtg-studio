@@ -5,7 +5,7 @@ description: "Invoquer après chaque modification de code (JS serveur ou client)
 
 # Tests de fumée
 
-1. Syntaxe : `node --check` sur **chaque** fichier JS modifié (`server/**` et `js/**`).
+1. Syntaxe : `node --check` sur **chaque** fichier JS modifié (`server/**` et `js/**`), et `python -m py_compile` sur chaque fichier `.py` modifié.
 2. Boot sur un **port neuf** (le serveur de l'utilisateur tourne sur 3000) :
    `node server/server.js 3999` en arrière-plan, puis
    `curl http://localhost:3999/api/health` → attendu `{"ok":true}`.
