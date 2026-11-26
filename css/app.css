@@ -371,8 +371,8 @@ tr.dkrow .arch{color:var(--accent2);font-weight:600}
 .gosearch input[type=text]{min-width:180px;padding-right:46px}
 .gosearch .btn{position:absolute;top:0;right:0;bottom:0;height:auto;transform:none;padding:0 12px;font-size:13px;border:none;border-radius:0 8px 8px 0}
 /* en 2 colonnes : evscroll remplit l'espace restant du panneau (flex), min 140px
-   pour garder le tableau visible quand les chips 'noms proches' prennent de la place ;
-   en 1 colonne (media query ci-dessus) : hauteur fixe --t8list-h */
+   pour garder le tableau visible ; en 1 colonne (media query ci-dessus) : hauteur
+   fixe --t8list-h */
 .evscroll{flex:1 1 auto;min-height:140px;overflow-y:auto}
 .evtable{table-layout:fixed}
 .evtable thead th{position:sticky;top:0;background:var(--panel);z-index:2}
