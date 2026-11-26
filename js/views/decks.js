@@ -131,7 +131,7 @@ async function vDecks(app){
   <div class="t8grid">
     <div>
       <div class="panel t8kpi" id="t8kpi"></div>
-      <div class="panel"><h3 class="sub" style="margin-top:0">Archétype</h3><div class="archlist" id="t8arch"></div></div>
+      <div class="panel archpanel"><h3 class="sub" style="margin-top:0">Archétype</h3><div class="archlist" id="t8arch"></div></div>
     </div>
     <div class="panel"><h3 class="sub" style="margin-top:0">Liste des tournois</h3><div id="t8results"></div></div>
   </div>`;
