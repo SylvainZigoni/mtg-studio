@@ -176,10 +176,14 @@ async function vDecks(app){
   renderT8Results(app);
 }
 
+/* spinner pendant la requête /api/decks/search (réutilise la roue .spin du loader global) */
+const t8spinHTML = label => `<div class="t8loading"><div class="spin"></div>${label ? `<p class="hint" style="margin:0">${label}</p>` : ''}</div>`;
+
 async function renderT8Results(app){
   if(t8.mode==='pl' || t8.mode==='cd') return renderT8Player(app);   // mode carte = mêmes colonnes/rendu que le mode joueur
   const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
   if(!box) return;
+  kpi.innerHTML = t8spinHTML(); arch.innerHTML = t8spinHTML(); box.innerHTML = t8spinHTML('Recherche en cours…');
   let j;
   try{ j = await t8fetch(); }
   catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
@@ -242,6 +246,7 @@ async function renderT8Results(app){
 async function renderT8Player(app){
   const kpi = app.querySelector('#t8kpi'), arch = app.querySelector('#t8arch'), box = app.querySelector('#t8results');
   if(!box) return;
+  kpi.innerHTML = t8spinHTML(); arch.innerHTML = t8spinHTML(); box.innerHTML = t8spinHTML('Recherche en cours…');
   let j;
   try{ j = await t8fetch(); }
   catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }

@@ -328,6 +328,7 @@ input[type=range]{accent-color:var(--accent)}
 .t8kpi .big{font-size:27px;font-weight:700;color:var(--accent);line-height:1.25}
 .t8kpi .big2{font-size:20px;font-weight:600;margin-top:4px}
 .archlist{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-top:8px}
+.t8loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:1;min-height:0}   /* spinner .spin (défini plus haut) pendant la requête */
 .arch-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:13px}
 .arch-item:hover{background:var(--panel2)}
 .arch-item .hint{white-space:nowrap}
