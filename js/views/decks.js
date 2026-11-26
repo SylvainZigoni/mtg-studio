@@ -35,7 +35,7 @@ const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb jou
 const T8_PCOLS = [['player','Nom'],['date','Date'],['fmt','Format'],['evname','Nom du tournoi'],['deck','Deck joué'],['rank','Rang'],['players','Joueurs']];
 const T8_PCOLW = [14, 12, 8, 30, 20, 6, 10];   // % : nom, date, format, tournoi, deck, rang, joueurs
 const FMT_SHORT = {MO:'MOD', LE:'LEG', VI:'VIN', PAU:'PAU', PEA:'PEA', PREM:'PRE', EDH:'DC'};
-let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', page:1, cursors:[], open:new Set(), _rt:null };
+let t8 = { mode:'ev', fmts:[], players:'ALL', q:'', arch:null, dateFrom:null, dateTo:null, sortCol:'date', sortDir:'desc', page:1, cursors:[], open:new Set(), _rt:null };
 let FMT_META = null;    // [{code,name}] via /api/decks/meta (noms complets des formats)
 let t8Bounds = null;    // bornes (ordinaux de jours) des dates d'events
 let ddCloseBound = false;
@@ -66,6 +66,7 @@ async function t8fetch(){
   if(t8.players && t8.players!=='ALL') q.set('players', t8.players);
   if(t8.mode==='cd'){ if(t8.q) q.set('card', t8.q); }   // recherche par carte : param card= exact (pas q)
   else if(t8.q) q.set('q', t8.q);
+  if(t8.arch) q.set('arch', t8.arch);   // filtre archétype cliqué dans le panneau Archétype
   if(t8.dateFrom!=null) q.set('dateFrom', isoOf(t8.dateFrom));
   if(t8.dateTo!=null) q.set('dateTo', isoOf(t8.dateTo));
   q.set('sort', t8.sortCol==='deck' ? 'name' : t8.sortCol);
@@ -150,7 +151,7 @@ async function vDecks(app){
     syncFmt(); t8.page = 1; t8.cursors = []; renderT8Results(app);
   });
   app.querySelector('#t8players').onchange = e => { t8.players = e.target.value; t8.page = 1; t8.cursors = []; renderT8Results(app); };
-  app.querySelectorAll('.t8radio').forEach(r => r.onchange = () => { t8.mode = r.value; t8.q = ''; vDecks(app); });
+  app.querySelectorAll('.t8radio').forEach(r => r.onchange = () => { t8.mode = r.value; t8.q = ''; t8.arch = null; vDecks(app); });
   ['ev','pl','cd'].forEach(m => {
     const inp = app.querySelector('#t8q-'+m), go = app.querySelector('#t8go-'+m);
     if(!inp || !go) return;
@@ -225,8 +226,14 @@ async function renderT8Results(app){
   (j.archs || []).forEach(a => { const k = a.arch || '(sans archétype)'; am.set(k, (am.get(k) || 0) + a.n); });
   const al = [...am.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
   arch.innerHTML = al.length
-    ? al.map(([a,n]) => `<div class="arch-item" data-arch="${esc(a)}"><span>${esc(a)}</span><span class="hint">${fmtN(n)} deck${n>1?'s':''} · ${dt ? Math.round(n/dt*100) : 0}%</span></div>`).join('')
+    ? al.map(([a,n]) => `<div class="arch-item${t8.arch===a?' active':''}" data-arch="${esc(a)}" title="Filtrer sur cet archétype"><span>${esc(a)}</span><span class="hint">${fmtN(n)} deck${n>1?'s':''} · ${dt ? Math.round(n/dt*100) : 0}%</span></div>`).join('')
     : '<p class="hint">Aucun deck dans les tournois filtrés.</p>';
+  arch.querySelectorAll('.arch-item').forEach(el => el.onclick = () => {
+    const a = el.dataset.arch;
+    t8.arch = (t8.arch === a) ? null : a;   // clic = filtre, re-clic = enlève le filtre
+    t8.page = 1; t8.cursors = [];
+    renderT8Results(app);
+  });
   const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_COLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
   const rows = j.rows.map(e => {
     const open = t8.open.has(e.eid);
@@ -297,9 +304,15 @@ async function renderT8Player(app){
     const m = byFmt.get(f);
     const items = [...m.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
     ahtml += `<div class="arch-fmt">${esc(f)}</div>` + items.map(([a,n]) =>
-      `<div class="arch-item" data-arch="${esc(a)}" data-fmt="${esc(f)}"><span>${esc(a)}</span><span class="hint">${fmtN(n)} deck${n>1?'s':''} · ${total ? Math.round(n/total*100) : 0}%</span></div>`).join('');
+      `<div class="arch-item${t8.arch===a?' active':''}" data-arch="${esc(a)}" data-fmt="${esc(f)}" title="Filtrer sur cet archétype"><span>${esc(a)}</span><span class="hint">${fmtN(n)} deck${n>1?'s':''} · ${total ? Math.round(n/total*100) : 0}%</span></div>`).join('');
   }
   arch.innerHTML = ahtml || '<p class="hint">Aucun deck ne correspond aux filtres.</p>';
+  arch.querySelectorAll('.arch-item').forEach(el => el.onclick = () => {
+    const a = el.dataset.arch;
+    t8.arch = (t8.arch === a) ? null : a;   // clic = filtre, re-clic = enlève le filtre
+    t8.page = 1; t8.cursors = [];
+    renderT8Results(app);
+  });
   const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_PCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
   const rows = j.rows.map(d =>
     `<tr class="dkrow2" data-did="${d[0]}"><td class="c-player">${esc(d[5]||'')}</td><td class="c-date" style="text-align:center">${frDate(d[8])}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(d[1]))}</span></td><td class="c-evname">${esc(d[6]||'')}</td><td class="c-deck">${esc(d[3]||'')}</td><td class="c-rank" style="text-align:center">#${d[2]}</td><td class="c-players" style="text-align:center">${d[12]==null?'—':d[12]}</td></tr>`).join('');
