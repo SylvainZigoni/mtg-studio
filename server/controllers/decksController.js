@@ -2,8 +2,8 @@
    /api/decks/search (paginé ; FTS5 trigram pour q >= 3 cars ; filtre card= exact
    casse ignorée via ix_cards_card ; cache des COUNT par version de la base ;
    pagination keyset en tri date via afterDate/afterId),
-   /api/decks/deck?did=, /api/decks/meta, /api/decks/stats, /api/decks/playable (worker + cache),
-   /api/decks/arch, /api/decks/topcards. */
+   /api/decks/deck?did=, /api/decks/meta, /api/decks/cardnames?q= (autocomplétion recherche carte),
+   /api/decks/stats, /api/decks/playable (worker + cache), /api/decks/arch, /api/decks/topcards. */
 import { sendJson} from '../utils/http.js';
 import { SNAPSHOT_DB, snapshotAvailable, getSnapshotDb } from '../utils/snapshotDb.js';
 import path from 'node:path';
@@ -41,6 +41,29 @@ export function apiDecksMeta(req, res) {
     minDate: one('SELECT MIN(event_date) n FROM events WHERE fetched=1'),
     formats,
   });
+}
+
+/* GET /api/decks/cardnames?q= — autocomplétion de la recherche par carte :
+   noms de cartes présents dans deck_cards (table cards + FTS5 trigram cards_fts,
+   LIKE accéléré par le tokenizeur trigram pour q >= 3 cars, LIKE sur cards sinon).
+   Repli sur scan LIKE de deck_cards si la base n'a pas encore la migration
+   user_version=2 (cards_fts absente). */
+export function apiDecksCardNames(req, res) {
+  if (!snapshotAvailable())
+    return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
+  const q = String((req.query || {}).q || '').trim();
+  if (!q) return sendJson(res, 200, { ok: true, names: [] });
+  const c = getSnapshotDb();
+  const like = '%' + escLike(q) + '%';
+  const hasFts = !!c.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cards_fts'").get();
+  let names;
+  if (hasFts && q.length >= 3)
+    names = c.prepare("SELECT c.card FROM cards_fts f JOIN cards c ON c.rowid = f.rowid WHERE f.card LIKE ? ESCAPE '\\' ORDER BY c.card LIMIT 12").all(like).map(r => r.card);
+  else if (hasFts)
+    names = c.prepare("SELECT card FROM cards WHERE lower(card) LIKE ? ESCAPE '\\' ORDER BY card LIMIT 12").all(like).map(r => r.card);
+  else
+    names = c.prepare("SELECT DISTINCT card FROM deck_cards WHERE lower(card) LIKE ? ESCAPE '\\' ORDER BY card LIMIT 12").all(like).map(r => r.card);
+  sendJson(res, 200, { ok: true, names });
 }
 
 /* ============================================================
