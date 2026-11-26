@@ -42,7 +42,7 @@ Schémas :
 
 ## 1. Conventions
 
-- Réponses JSON : `{ ok: true, … }` ; erreurs `{ ok: false, error }` avec 400 (params), 404 (inconnu), 409 (déjà en cours), 502 (calcul en échec), 503 (base absente — message dit quoi lancer).
+- Réponses JSON : `{ ok: true, … }` ; erreurs `{ ok: false, error }` avec 400 (params), 404 (inconnu), 409 (déjà en cours), 500 (erreur interne), 501 (non implémenté), 502 (calcul en échec), 503 (base absente — message dit quoi lancer).
 - Caches serveur : TTL 12 h (`MARKET_TTL`), invalidés par le **mtime des fichiers lus** (`prices.db` + `mtg_data.db` pour le marché, `mtgtop8.sqlite` pour les decks) — piège WAL (mtime `-wal`/`-shm`, `dataMtimeMs()`) : `gotchas.md` → « Caches & mtime ».
 - Fichiers statiques : `/` → `index.html` (`Cache-Control: no-cache`), autres fichiers avec `Last-Modified` + `304` ; **les `*.db` ne sont jamais servis**.
 
@@ -75,7 +75,7 @@ Schémas :
 
 | Route | Params | Réponse | Source |
 |---|---|---|---|
-| `GET /api/market` | `?w=1w\|1m\|1y\|3y\|5y\|10y\|rel` (défaut 1m), `&scope=all\|collection`, `&limit=` (≤50, défaut 20) | top/flop `{ok, n, results:[{name,set,cn,now,was,pct,qty,foil,sfid}]}` ; `rel` = 1er point de la série | `prices.db` + collection (`mtg_data.db`) si scope=collection ; cache 12 h clé `scope\|w` |
+| `GET /api/market` | `?w=1w\|1m\|1y\|3y\|5y\|10y\|rel` (défaut 1m), `&scope=all\|collection`, `&limit=` (≤50, défaut 20) | `{ok, w, scope, n, top:[{name,set,cn,now,was,pct,qty,foil,sfid}]…, flop:[…]}` ; `rel` = 1er point de la série | `prices.db` + collection (`mtg_data.db`) si scope=collection ; cache 12 h clé `scope\|w` |
 | `GET /api/market/cards` | `from`,`to` (ordinals, requis) + filtres `name, artist, set, colors=W,U,…, types, cmc` (`7+` ok), `reserved=1`, `scope=collection`, `foil=0\|1` (défaut tous), tri `sort=name\|set\|rarity\|qty\|was\|now\|pct\|flat\|impact\|foil` + `dir=asc\|desc`, `page`, `limit` (5–100, défaut 25) | `{ok, from, to, total, page, pages, limit, kpi:{n,up,down,flat,median,avg, tot:{was,flat,pct}, upSum,downSum, top3[], flop3[], coll:{n,was,now,flat,pct}}, hist:[{lo,hi,n}], index:[[iso,val]], totalSeries:[[iso,€]], rows:[{sfid,name,set,cn,rarity,lang,img,img_lg,foil,qty,was,now,pct,flat,impact,spark:[[iso,€]]}]}` — **1 ligne par finition ayant un blob de prix** ; recherche 100 % locale | `prices.db.cards` LEFT JOIN `series` ; qté collection résolue par `(set,cn,foil)` → `scryfall_id` (`resolveCollSfid`) ; cache 12 h invalidé par mtime `prices.db` **et** `mtg_data.db` + `-wal`/`-shm` (WAL, `dataMtimeMs()`) |
 | `GET /api/market/cards/status` | — | `{ok, running, phase, page, cards, since}` (poll pendant le calcul) | mémoire serveur |
 | `GET /api/market/sets` | `from`,`to` (ordinals, requis) | `{ok, from, to, n, sets:[{set,n,was,now,flat,pct,impact}]}` — coût d'une édition = somme des prix à `from` (« avant ») puis `to` (« après »), **1 valorisation par impression et par finition** — normal + foil si prix foil dispo (même dédup \`(LOWER(name),\"set\",cn)\` que \`/api/market/cards\`, anglais préféré ; une carte imprimée en plusieurs langues n'est comptée qu'une fois par finition) ; `was` = `blobAt(from)`, repli 1er prix valide dans `[from,to]` ; `impact` = Σ (flat × qté) des entrées collection de l'édition, flat sur la **finition possédée** (résolue par `(set,cn)` → scryfall_id) — cohérent avec le KPI impact de la vue Cartes ; `pct` en fraction | `prices.db` + collection (`mtg_data.db`) ; cache 12 h invalidé par mtime `prices.db` **et** `mtg_data.db` + `-wal`/`-shm` (WAL, `dataMtimeMs()`) |
@@ -118,7 +118,7 @@ Seuils « aberrant » : `gotchas.md` → « Prix » (`<= 0 €` ignoré, vrais p
 
 | Route | Params | Réponse | Source |
 |---|---|---|---|
-| `GET /api/mkm/settings` | — | `{ok, settings}` (clés masquées côté client) | `mtg_data.db.mkm_settings` |
+| `GET /api/mkm/settings` | — | `{ok, present:{appToken,appSecret,accessToken,accessSecret}, username}` (les secrets ne sont jamais renvoyés en clair) | `mtg_data.db.mkm_settings` |
 | `POST /api/mkm/settings` | body = réglages (app token, secret, …) | `{ok:true}` | `mtg_data.db.mkm_settings` |
 | `POST /api/mkm/*` | body JSON proxifié tel quel (`/api/mkm/test`, `/vacation`, `/articles`, `/find_product`, …) | réponse Cardmarket relayée | `https://api.cardmarket.com` via signature HMAC-SHA1 (`server/utils/oauth.js`) |
 

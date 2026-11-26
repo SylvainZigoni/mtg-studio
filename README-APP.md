@@ -6,7 +6,7 @@
 - `server/server.js` : le serveur à lancer (Node >= 22.5, zéro dépendance npm : `node:http` + `node:sqlite`). Sert l'app + enregistre vos données dans SQLite
 - `server/` : routes (`routes/`), contrôleurs (`controllers/`), middlewares (`middleware/`), utilitaires (`utils/`)
 - `index.html` + `css/` + `js/` : l'application (client en modules ES, `css/reset.css` puis `css/app.css`)
-- `mtgtop8.sqlite` : base du scraper MTGTop8 (tournois 2026, decks, cartes) ; l'app la lit via `GET /api/decks`, servi par le serveur Node
+- `mtgtop8.sqlite` : base du scraper MTGTop8 (tournois 2026, decks, cartes) ; l'app la lit via `/api/decks/*` (`search`, `deck`, `meta`, `stats`, `playable`, `arch`, `topcards`), servie par le serveur Node
 - `price_seed.py` : construit/met à jour `prices.db` depuis MTGJSON (reste en Python, appelé aussi par le serveur pour les prix du jour)
 
 ## Lancer l'app (recommandé)
@@ -71,7 +71,7 @@ du navigateur et le badge affiche « ⚠ hors serveur ».
   (l'API Cardmarket interdit les appels directs depuis un navigateur).
   Les jetons sont stockés dans la BDD, jamais dans le navigateur.
 
-## En cours (phase 2) — désormais livré
+## Fonctionnalités livrées
 - Page **Marché** : top/flop des évolutions de prix (1 semaine, 1 mois, 1 an,
   3/5/10 ans, depuis la sortie), toutes cartes ou restreint à votre collection.
 - Page **Marché**, onglet **Éditions** : évolution du coût de chaque extension sur la période choisie (2 curseurs sur la timeline) — coût avant → après (normal + foil, 1 valorisation par impression), évol. € / %, impact sur votre collection ; tableau triable (nom, date, coût après, évolutions, impact) ; un clic sur une ligne ouvre la vue Cartes filtrée sur cette extension.
@@ -84,18 +84,15 @@ du navigateur et le badge affiche « ⚠ hors serveur ».
 Téléchargez directement `prices.db` (déjà construit, mis à jour chaque lundi
 par une tâche planifiée) et déposez-le à côté de `server/`. Sinon, construisez-le :
 ```
-python3 price_seed.py prices   # télécharge AllPrices.json.gz (148 Mo), construit prices.db (~2 min)
+python3 price_seed.py prices   # télécharge AllPrices.json.gz (~150 Mo), construit prices.db (~2 min)
 python3 price_seed.py cards    # télécharge les extensions MTGJSON : noms + ids Scryfall (~2 min)
 ```
 Puis relancez le serveur Node : la page Marché, les statistiques et la courbe de
 prix fonctionnent.
 
 ### Tenir prices.db à jour
-- **Automatique (cloud)** : une tâche planifiée s'exécute chaque lundi à
-  10 h 30 et republie un `prices.db` à jour en artefact. Si vous n'ouvrez pas
-  l'app pendant des semaines, téléchargez la dernière version.
 - **Automatique (app)** : à chaque ouverture de l'app, le serveur intègre les
-  prix du jour (AllPricesToday, 5,6 Mo, 1 fois/jour max) — granularité
+  prix du jour (AllPricesToday, ~6 Mo, 1 fois/jour max) — granularité
   quotidienne tant que l'app est ouverte.
 - **Automatique (cron local, recommandé)** : `python3 price_seed.py weekly`
   fusionne la fenêtre des 3 derniers mois et **comble tout trou** jusqu'à
@@ -113,14 +110,15 @@ prix fonctionnent.
 - `prices.db` : historique de prix compact (binaire) ; sauvegardez-le.
 
 ## Mise à jour des decks
-- La tâche planifiée du lundi 10 h met à jour la base SQLite du scraper.
+- La tâche planifiée du lundi 9 h (`0 9 * * 1`) met à jour la base SQLite du scraper
+  et fusionne les prix (`price_seed.py weekly`).
 - Depuis l'app : Paramètres → panneau « Mise à jour MTGTop8 » → « Lancer le scraping »
   (`scraper.py phase1` + `crawl.py 3600`, base `mtgtop8.sqlite`).
   En ligne de commande : `python scraper.py phase1` puis `python crawl.py 3600`.
-- L'appli lit les decks **directement dans la base SQLite** via `GET /api/decks`
-  (le serveur construit le JSON depuis la snapshot, le gzippe et le met en cache ;
-  le cache est invalidé automatiquement quand la base change). Rechargez ensuite
-  la page (Ctrl+F5).
+- L'appli lit les decks **à la demande dans la base SQLite** via `/api/decks/search`,
+  `/api/decks/deck`, `/api/decks/meta`, `/api/decks/stats`, `/api/decks/playable`,
+  `/api/decks/arch`, `/api/decks/topcards` (paginé, recherche FTS5, caches invalidés
+  automatiquement quand la base change). Rechargez ensuite la page (Ctrl+F5).
 - **Contrôle d'exhaustivité** (outil de dev, non publié dans le client) :
   `python check_scrape.py [FORMAT] [ANNEE] [--decks] [--max-events N]` compare le site
   à `mtgtop8.sqlite` (events, puis decks did par did avec `--decks`) et écrit
@@ -134,5 +132,6 @@ prix fonctionnent.
   ne sont pas re-téléchargés). En CLI : `python scrape_year.py 2022 PREM 3600 --recheck`.
 
 ## Sources externes
-- Visuels, toutes les extensions, prix (EUR Cardmarket) : API publique
-  Scryfall, appelée directement par le navigateur avec un cache local.
+- Visuels et métadonnées (toutes extensions) : API publique Scryfall, appelée
+  directement par le navigateur avec un cache local. **Prix (EUR Cardmarket) :
+  `prices.db` uniquement**, jamais Scryfall.

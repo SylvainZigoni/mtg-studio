@@ -12,7 +12,7 @@ prices.db-shm
 mtgtop8.sqlite
 mtgtop8.sqlite-wal
 mtgtop8.sqlite-shm
-# decks.json.gz (8 Mo) : régénéré par export depuis la snapshot (voir scraper.py)
+# decks.json.gz : abandonné (decks servis via /api/decks/* depuis mtgtop8.sqlite)
 decks.json.gz
 
 # --- Caches et divers ---
