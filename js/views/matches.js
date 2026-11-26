@@ -2,7 +2,7 @@ import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS } f
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
-import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
@@ -83,7 +83,7 @@ function vMatches(app){
   <div class="panel">
     <h3 style="margin-bottom:10px">Historique (${matches.length} matchs)</h3>
     ${matches.length ? matches.slice().reverse().map(m => `
-      <div class="matchline" data-id="${m.id}">
+      <div class="matchline" data-id="${esc(m.id)}">
         <span class="badge ${m.result==='V'?'b-ok':m.result==='N'?'b-null':'b-warn'}">${m.result==='V'?'VICTOIRE':m.result==='N'?'MATCH NUL':'DÉFAITE'} ${m.score}</span>
         <span class="fmt">${fmtName(m.format)}</span>
         <b>${esc(m.myDeck||m.myArch)}</b> vs <b>${esc(m.oppArch||'?')}</b>

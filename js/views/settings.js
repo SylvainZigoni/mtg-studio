@@ -2,7 +2,7 @@ import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS } f
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
-import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
@@ -43,7 +43,7 @@ function vSettings(app){
   <p class="hint" id="s-info" style="margin-top:8px">Statut : inconnu (enregistrez d'abord vos jetons).</p>
   </div>
   <div class="panel"><h3>Mise à jour MTGTop8 (scraping)</h3>
-  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8.sqlite</code>, journal dans <code>scrape.log</code> — l'appli lit les decks directement dans cette base via <code>GET /api/decks</code>. Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
+  <p class="hint">Lance <code>scraper.py phase1</code> (nouveaux tournois 2026) puis <code>crawl.py</code> (decks + cartes) en arrière-plan ; résultat dans <code>mtgtop8.sqlite</code>, journal dans <code>scrape.log</code> — l'appli lit les decks à la demande dans cette base via <code>/api/decks/*</code> (search, deck, meta, stats, playable, arch, topcards). Relancer est sans danger : tournois et decks déjà présents ne sont pas doublés (clés primaires + <code>INSERT OR IGNORE</code>).</p>
   <div class="row" style="margin-top:10px;flex-wrap:wrap">
     <label>Durée max du crawl (s)<input id="s-scrape-secs" type="number" value="3600" min="60" step="60" style="width:110px"></label>
     <button class="btn" id="s-scrape">🕷️ Lancer le scraping</button>

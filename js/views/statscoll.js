@@ -2,7 +2,7 @@ import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS } f
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
-import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
 import { R, S } from '../core/registry.js';
@@ -47,7 +47,7 @@ function vStatsColl(app){
   const setCount = {};
   entries.forEach(e => setCount[e.set] = (setCount[e.set]||0) + e.qty);
   const topSets = Object.entries(setCount).sort((a,b) => b[1]-a[1]).slice(0,10);
-  app.querySelector('#scsets').innerHTML = topSets.map(([s,n]) => `<div class="row" style="justify-content:space-between"><span class="link" data-set="${s}">${s.toUpperCase()}</span><span class="hint">${n} ex.</span></div>`).join('') || '<p class="hint">—</p>';
+  app.querySelector('#scsets').innerHTML = topSets.map(([s,n]) => `<div class="row" style="justify-content:space-between"><span class="link" data-set="${esc(s)}">${esc(s.toUpperCase())}</span><span class="hint">${n} ex.</span></div>`).join('') || '<p class="hint">—</p>';
   const topCards = entries.slice().sort((a,b) => b.qty-a.qty).slice(0,10);
   app.querySelector('#sctop').innerHTML = topCards.map(e => `<div class="row" style="justify-content:space-between"><span class="link" data-nm="${esc(e.name)}">${esc(e.name)}</span><span class="hint">×${e.qty}</span></div>`).join('') || '<p class="hint">—</p>';
   app.querySelectorAll('[data-set]').forEach(el => el.onclick = () => { R.gotoSets(el.dataset.set); });

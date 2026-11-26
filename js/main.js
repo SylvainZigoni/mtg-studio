@@ -2,7 +2,7 @@
 /* ============================================================
    MTG Studio — point d'entrée (js/main.js)
    Collection + Decks MTGTop8 2026 + Matchs + Stats + Tags
-   Version 2026-11-16m (phase 2 : serveur Node zéro-dep dans server/, client en modules ES) */
+   Version 2026-11-16b (phase 2 : serveur Node zéro-dep dans server/, client en modules ES) */
 
 import { $, esc, norm } from './core/util.js';
 import { pullState, myDecks } from './core/model.js';
@@ -27,8 +27,6 @@ window.addEventListener('error', e => {
   const m = document.getElementById('loadmsg');
   if(m) m.textContent = '⚠ Erreur au chargement : ' + (e.message || e.type) +
     ' — vérifiez que index.html et js/ sont de la même version (retéléchargez-les ensemble).';
-  const p = document.getElementById('pickbtn');
-  if(p) p.style.display = 'block';
 });
 
 /* ============================================================
@@ -94,7 +92,7 @@ const inp = $('#globsearch'), sugg = $('#gsugg');
         ${mine.length ? `<div class="sughead">Decks perso</div>` + mine.map(d =>
           `<div class="sug" data-kind="mydeck" data-id="${d.id}">🧩 ${esc(d.name)} <span class="hint">${esc(d.format)}</span></div>`).join('') : ''}
         ${t8.length ? `<div class="sughead">Decks MTGTop8</div>` + t8.map(d =>
-          `<div class="sug" data-kind="t8deck" data-id="${d[0]}">🏆 ${esc(d[3]||'')} <span class="hint">${esc(d[4]||'')}</span></div>`).join('') : ''}
+          `<div class="sug" data-kind="t8deck" data-id="${esc(d[0])}">🏆 ${esc(d[3]||'')} <span class="hint">${esc(d[4]||'')}</span></div>`).join('') : ''}
         ${cards.length ? `<div class="sughead">Cartes</div>` + cards.map(n =>
           `<div class="sug" data-kind="card" data-id="${esc(n)}">🃏 ${esc(n)}</div>`).join('') : ''}
         ${!mine.length && !t8.length && !cards.length ? `<div class="sug hint">Aucun résultat</div>` : ''}`;
