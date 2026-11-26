@@ -1,13 +1,27 @@
 /* Helpers HTTP : JSON, body, query string, encodage RFC3986 (comme urllib.parse.quote(s, '')) */
+import zlib from 'node:zlib';
 
-/** Envoie une réponse JSON (équivalent _send_json de server.py). */
+/** Seuil sous lequel on ne compresse pas (gzip coûteux sur les petites réponses). */
+const GZIP_MIN = 1024;
+
+/** Envoie une réponse JSON (équivalent _send_json de server.py).
+    Compression gzip À LA VOLÉE si le client l'accepte (Accept-Encoding, lu via res.req posé dans app.js)
+    et body >= GZIP_MIN : aucun artefact .gz à générer, la compression suit toujours les données fraîches
+    (un ajout de prix invalide le cache mtime et la prochaine réponse est recompressée automatiquement). */
 export function sendJson(res, code, obj) {
-  const body = Buffer.from(JSON.stringify(obj), 'utf8'); // JSON.stringify garde l'unicode (ensure_ascii=False)
-  res.writeHead(code, {
+  let body = Buffer.from(JSON.stringify(obj), 'utf8'); // JSON.stringify garde l'unicode (ensure_ascii=False)
+  const headers = {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': body.length,
     'Cache-Control': 'no-store',
-  });
+    'Vary': 'Accept-Encoding',
+  };
+  const accept = String((res.req && res.req.headers['accept-encoding']) || '');
+  if (body.length >= GZIP_MIN && /\bgzip\b/.test(accept)) {
+    body = zlib.gzipSync(body, { level: 6 });
+    headers['Content-Encoding'] = 'gzip';
+  }
+  headers['Content-Length'] = body.length;
+  res.writeHead(code, headers);
   res.end(body);
 }
 

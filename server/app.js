@@ -15,6 +15,7 @@ export function createApp() {
     setFallback(fn) { fallback = fn; },
 
     async handle(req, res) {
+      res.req = req;   // exposé pour sendJson (détection Accept-Encoding -> gzip à la volée)
       const qpos = req.url.indexOf('?');
       req.path = qpos < 0 ? req.url : req.url.slice(0, qpos);
       req.query = parseQuery(req.url);
