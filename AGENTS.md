@@ -4,6 +4,8 @@
 
 Avant de commencer n'importe quelle tâche, lire obligatoirement gotchas.md
 
+**Fins de ligne : LF partout.** Dépôt et disque normalisés en LF (`.gitattributes` `* text=auto eol=lf`, `core.autocrlf=false` en local) : modifier les fichiers directement, ne jamais réécrire un fichier en CRLF (hook pre-commit anti-`\r` actif en local).
+
 Skills réutilisables dans `skills/<nom>/SKILL.md` : les invoquer quand la tâche correspond à leur `description` (index dans `skills/README.md`).
 
 Application web locale de collection Magic: The Gathering + méta MTGTop8 2026.

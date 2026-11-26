@@ -24,7 +24,7 @@ Liste des skills (voir chaque SKILL.md pour la procédure) :
 | `api-design` | dès qu'on ajoute/modifie un endpoint ou une source de données |
 | `frontend-modules` | dès qu'on touche à `index.html` ou `js/` |
 | `data-pipeline` | prix (price_seed.py), scraping MTGTop8, mises à jour hebdo |
-| `crlf-windows` | dès qu'on patch un fichier sur la machine Windows (CRLF) |
+| `line-endings` | dès qu'on modifie un fichier sur la machine Windows (projet 100 % LF, jamais de CRLF) |
 | `docs-update` | à chaque changement de code (doc dans le même commit) |
 | `release` | préparation d'une release (version, tag, merge vers main) |
 | `deploy-exe` | packaging de l'app en .exe (Node SEA) |

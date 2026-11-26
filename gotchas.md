@@ -1,7 +1,7 @@
 # Pièges et règles du projet
 
 ## À ne jamais faire
-- Ne jamais modifier un fichier du projet sans préserver les fins de ligne **CRLF** : patcher en binaire via Python (`open(p,'rb')`, `old/new.replace('\n','\r\n')`), ne jamais copier-coller une ancre depuis `read_file` (les `"` y sont échappées) ; vérifier `b.count(b'\r\r\n')==0` après chaque patch.
+- **Fins de ligne : le projet est 100 % LF** (dépôt et disque) — `.gitattributes` `* text=auto eol=lf` + `*.png binary`, `core.autocrlf=false` en local sur la machine Windows : modifier les fichiers directement avec les outils d'édition (LF), ne **jamais** réécrire un fichier en CRLF (un hook pre-commit local bloque tout `\r` dans les fichiers texte stagés). Ne jamais copier-coller une ancre depuis `read_file` (les guillemets y sont échappés).
 - Ne jamais chercher un prix ou la liste des cartes sur Scryfall : les prix affichés viennent exclusivement de `prices.db` (`/api/prices/last` → `dbPrice()`), la recherche Marché est 100 % locale (`/api/market/cards`). Scryfall = métadonnées/recherche avancée uniquement, toujours avec `game:paper`. Lire `API.md` §0/§3 avant de choisir une source de données.
 - Ne jamais tuer un processus node à l'aveugle (`pkill` n'existe pas en Git Bash) : le serveur de l'utilisateur tourne sur le port 3000. Tester sur un **port neuf**, tuer ciblé via `netstat -ano | findstr :PORT` + `taskkill //PID <pid> //F`.
 - Ne jamais utiliser `2>nul` (crée un fichier littéral `nul` indexable par git) ni `/tmp` pour Python sous Windows : utiliser `price_cache/` (gitigné).
