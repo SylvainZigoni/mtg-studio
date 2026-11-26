@@ -60,8 +60,18 @@ def db():
       PRIMARY KEY (did, board, card));
     CREATE INDEX IF NOT EXISTS ix_decks_eid ON decks(eid);
     CREATE INDEX IF NOT EXISTS ix_cards_did ON deck_cards(did);
+    CREATE INDEX IF NOT EXISTS ix_cards_card ON deck_cards(card);
     CREATE INDEX IF NOT EXISTS ix_events_date ON events(event_date);
     CREATE INDEX IF NOT EXISTS ix_decks_format ON decks(format);
+    CREATE TABLE IF NOT EXISTS cards(card TEXT PRIMARY KEY);
+    CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
+      card, tokenize='trigram', content='cards', content_rowid='rowid');
+    CREATE TRIGGER IF NOT EXISTS cards_ai AFTER INSERT ON deck_cards BEGIN
+      INSERT OR IGNORE INTO cards(card) VALUES (new.card);
+    END;
+    CREATE TRIGGER IF NOT EXISTS cards_fts_ai AFTER INSERT ON cards BEGIN
+      INSERT INTO cards_fts(rowid, card) VALUES (new.rowid, new.card);
+    END;
     CREATE VIRTUAL TABLE IF NOT EXISTS decks_fts USING fts5(
       player, deck_name, archetype, tokenize='trigram', content='decks', content_rowid='did');
     CREATE TRIGGER IF NOT EXISTS decks_fts_ai AFTER INSERT ON decks BEGIN
@@ -83,6 +93,15 @@ def db():
     if c.execute('PRAGMA user_version').fetchone()[0] < 1:
         c.execute("INSERT INTO decks_fts(rowid, player, deck_name, archetype) SELECT did, COALESCE(player,''), COALESCE(deck_name,''), COALESCE(archetype,'') FROM decks")
         c.execute('PRAGMA user_version=1')
+        c.commit()
+    # backfill one-shot du dictionnaire de cartes + FTS trigram (recherche par carte)
+    # (commit explicite : sqlite3 Python ouvre une transaction implicite, sans commit
+    #  le close() fait un ROLLBACK et le backfill est perdu)
+    if c.execute('PRAGMA user_version').fetchone()[0] < 2:
+        c.execute("INSERT OR IGNORE INTO cards(card) SELECT DISTINCT card FROM deck_cards")
+        c.execute("INSERT INTO cards_fts(cards_fts) VALUES('rebuild')")
+        c.execute('PRAGMA user_version=2')
+        c.commit()
     return c
 
 def parse_event_rows(h):

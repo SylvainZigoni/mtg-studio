@@ -32,7 +32,8 @@ export function staticFiles(req, res) {
   if (!file.startsWith(ROOT + path.sep) && file !== ROOT) {
     return sendJson(res, 403, { ok: false, error: 'forbidden' });
   }
-  if (path.extname(file) === '.db') {
+  // jamais de base servie en HTTP : .db, .sqlite, .sqlite3 + sidecars WAL (-wal/-shm/-journal)
+  if (/\.(db|sqlite|sqlite3)(-wal|-shm|-journal)?$/i.test(file)) {
     return sendJson(res, 404, { ok: false, error: 'not found' });
   }
   fs.stat(file, (err, st) => {
