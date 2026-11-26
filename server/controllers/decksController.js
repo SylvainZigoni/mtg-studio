@@ -119,8 +119,10 @@ function cachedCounts(c, key, build) {
    card= (view=decks) : filtre exact, casse ignorée — ne garde que les decks dont
    deck_cards contient exactement ce nom (index ix_cards_card ; nom inconnu = 0 deck).
    Renvoie { from, where, args } (args des JOIN en tête, avant ceux du WHERE).
-   idcol = colonne de tiebreak du keyset. */
-function filtersDecks(q, idcol) {
+   idcol = colonne de tiebreak du keyset.
+   withKeyset=false -> ignore afterDate/afterId : sert aux COUNT/archs qui doivent
+   porter sur l'ENSEMBLE des résultats, pas sur la page courante. */
+function filtersDecks(q, idcol, withKeyset) {
   const qs = String(q.q || '').trim();
   const useFts = qs.length >= 3;
   let from = useFts
@@ -152,7 +154,7 @@ function filtersDecks(q, idcol) {
     if (arch === '(sans archétype)') where.push("(d.archetype IS NULL OR d.archetype = '')");
     else { where.push('lower(d.archetype) = lower(?)'); args.push(arch); }
   }
-  if (q.afterDate) {   // keyset tri date : on ignore OFFSET, curseur sur (event_date, idcol)
+  if (withKeyset && q.afterDate) {   // keyset tri date : on ignore OFFSET, curseur sur (event_date, idcol)
     const op = q.dir === 'asc' ? '>' : '<';
     where.push('(e.event_date ' + op + ' ? OR (e.event_date = ? AND ' + idcol + ' ' + op + ' ?))');
     args.push(String(q.afterDate), String(q.afterDate), parseInt(q.afterId, 10) || 0);
@@ -160,8 +162,9 @@ function filtersDecks(q, idcol) {
   return { from, where: where.join(' AND '), args: [...cargs, ...args] };
 }
 
-/* Filtres vue events : e.fetched=1 + mêmes filtres sur la table events (+ keyset sur e.eid) */
-function filtersEvents(q) {
+/* Filtres vue events : e.fetched=1 + mêmes filtres sur la table events (+ keyset sur e.eid
+   si withKeyset — idem : les COUNT/archs appellent avec false pour porter sur l'ensemble) */
+function filtersEvents(q, withKeyset) {
   const where = ['e.fetched = 1'];
   const args = [];
   const fmts = String(q.fmt || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -176,7 +179,7 @@ function filtersEvents(q) {
     where.push("(lower(e.name || ' ' || COALESCE(e.place, '')) LIKE ? ESCAPE '\\')");
     args.push(like);
   }
-  if (q.afterDate) {
+  if (withKeyset && q.afterDate) {
     const op = q.dir === 'asc' ? '>' : '<';
     where.push('(e.event_date ' + op + ' ? OR (e.event_date = ? AND e.eid ' + op + ' ?))');
     args.push(String(q.afterDate), String(q.afterDate), parseInt(q.afterId, 10) || 0);
@@ -196,32 +199,37 @@ export function apiDecksSearch(req, res) {
   const keyset = !!q.afterDate;
 
   if (view === 'decks') {
-    const { from, where, args } = filtersDecks(q, 'd.did');
     const sortCol = SORT_DECKS[q.sort] || 'e.event_date';
-    const ck = 'decks|' + from + '|' + where + '|' + args.map(String).join('|');
+    // counts (total, eventsTotal, archs) sur l'ENSEMBLE des résultats : sans le curseur keyset
+    const b = filtersDecks(q, 'd.did', false);
+    const ck = 'decks|' + b.from + '|' + b.where + '|' + b.args.map(String).join('|');
     const counts = cachedCounts(c, ck, () => ({
-      total: c.prepare('SELECT COUNT(*) n FROM ' + from + ' WHERE ' + where).get(...args).n,
-      eventsTotal: c.prepare('SELECT COUNT(DISTINCT d.eid) n FROM ' + from + ' WHERE ' + where).get(...args).n,
-      archs: c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM ' + from + ' WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
+      total: c.prepare('SELECT COUNT(*) n FROM ' + b.from + ' WHERE ' + b.where).get(...b.args).n,
+      eventsTotal: c.prepare('SELECT COUNT(DISTINCT d.eid) n FROM ' + b.from + ' WHERE ' + b.where).get(...b.args).n,
+      archs: c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM ' + b.from + ' WHERE ' + b.where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...b.args)
         .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n })),
     }));
-    const rows = c.prepare('SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players FROM ' + from + ' WHERE ' + where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
-      .all(...args, limit, ...(keyset ? [] : [(page - 1) * limit]));
+    // rows : keyset appliqué (pagination)
+    const ks = filtersDecks(q, 'd.did', true);
+    const rows = c.prepare('SELECT d.did, d.format, d.rank, d.deck_name, d.archetype, d.player, e.name, e.place, e.event_date, d.eid, e.players FROM ' + ks.from + ' WHERE ' + ks.where + ' ORDER BY ' + sortCol + ' ' + dir + ', d.did ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
+      .all(...ks.args, limit, ...(keyset ? [] : [(page - 1) * limit]));
     return sendJson(res, 200, { ok: true, view, total: counts.total, eventsTotal: counts.eventsTotal, archs: counts.archs, page, limit,
       rows: rows.map(r => [r.did, r.format, r.rank, r.deck_name, r.archetype, r.player, r.name, r.place, r.event_date, r.eid, '', '', r.players]) });
   }
 
-  const { where, args } = filtersEvents(q);
   const sortCol = SORT_EVENTS[q.sort] || 'e.event_date';
-  const ck = 'events|' + where + '|' + args.map(String).join('|');
+  // counts sur l'ENSEMBLE des résultats (sans keyset), rows avec keyset
+  const b = filtersEvents(q, false);
+  const ck = 'events|' + b.where + '|' + b.args.map(String).join('|');
   const counts = cachedCounts(c, ck, () => ({
-    total: c.prepare('SELECT COUNT(DISTINCT e.eid) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n,
-    decksTotal: c.prepare('SELECT COUNT(d.did) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where).get(...args).n,
-    archs: c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...args)
+    total: c.prepare('SELECT COUNT(DISTINCT e.eid) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + b.where).get(...b.args).n,
+    decksTotal: c.prepare('SELECT COUNT(d.did) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + b.where).get(...b.args).n,
+    archs: c.prepare('SELECT d.format f, d.archetype a, COUNT(*) n FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + b.where + ' GROUP BY d.format, d.archetype ORDER BY n DESC LIMIT 100').all(...b.args)
       .map(r => ({ fmt: r.f, arch: r.a || '(sans archétype)', n: r.n })),
   }));
-  const rows = c.prepare('SELECT e.eid, e.format, e.name, e.place, e.event_date, e.players, COUNT(d.did) nd FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + where + ' GROUP BY e.eid ORDER BY ' + sortCol + ' ' + dir + ', e.eid ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
-    .all(...args, limit, ...(keyset ? [] : [(page - 1) * limit]));
+  const ks = filtersEvents(q, true);
+  const rows = c.prepare('SELECT e.eid, e.format, e.name, e.place, e.event_date, e.players, COUNT(d.did) nd FROM events e JOIN decks d ON d.eid = e.eid AND d.fetched = 1 WHERE ' + ks.where + ' GROUP BY e.eid ORDER BY ' + sortCol + ' ' + dir + ', e.eid ' + dir + ' LIMIT ?' + (keyset ? '' : ' OFFSET ?'))
+    .all(...ks.args, limit, ...(keyset ? [] : [(page - 1) * limit]));
   sendJson(res, 200, { ok: true, view: 'events', total: counts.total, decksTotal: counts.decksTotal, archs: counts.archs, page, limit,
     rows: rows.map(r => ({ eid: r.eid, fmt: r.format, name: r.name, place: r.place, date: r.event_date, players: r.players, decks: r.nd })) });
 }
