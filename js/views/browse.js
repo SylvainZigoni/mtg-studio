@@ -2,7 +2,7 @@ import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, CONDS, COND_LABEL, LANGS, TY
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks, ownedQtyMap } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
-import { parseDeck, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+
 import { dbPrice } from '../core/pricedb.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal, priceRangeHTML, wirePriceRange, setPriceBounds } from '../ui.js';
@@ -174,8 +174,7 @@ function buildAdvQuery(nameQ){
   else if(advF.set) q.push(`set:${advF.set}`);
   if(advF.reserved) q.push('is:reserved');
   /* (la clause "Dans ma collection" est ajoutée dans doSearch, après résolution du nom) */
-  if(advF.pmin !== '') q.push(`eur>=${advF.pmin}`);   // 2 clauses : la syntaxe eur:[x TO y] de Scryfall casse avec les espaces
-  if(advF.pmax !== '') q.push(`eur<=${advF.pmax}`);
+  // filtre prix pmin/pmax : appliqué LOCALEMENT via dbPrice() (prices.db) dans renderAdvResults, jamais envoyé à Scryfall
   return q.length ? q.join(' ') : '';
 }
 
@@ -242,7 +241,7 @@ async function loadSets(app){
         const s = r.s;
         const o = r.o, distinct = r.distinct, pct = r.pct, vc = r.vc;
         return `<tr data-s="${s.code}" style="cursor:pointer">
-          <td>${s.icon?`<img class="seticon" src="${s.icon}" style="width:24px;height:24px" alt="">`:'◈'}</td>
+          <td>${s.icon?`<img class="seticon" src="${esc(s.icon)}" style="width:24px;height:24px" alt="">`:'◈'}</td>
           <td><b>${esc(s.name)}</b> <span class="pill">${s.code.toUpperCase()}</span></td>
           <td class="hint">${frDate(s.released_at)}</td>
           <td class="hint">${o ? `${distinct} / ${s.card_count}` : `0 / ${s.card_count}`}</td>
@@ -463,23 +462,19 @@ async function doSearch(app){
     // délégué à Scryfall (order=/dir=) donc correct sur TOUTES les pages
     const j = await sfSearch(q, browsePage, advSortOrder());
     advLast = {data: j.data || [], total: j.total_cards || 0, q};
-    refreshPriceBounds(q);   // resserre la jauge de prix sur les résultats de cette requête
+    refreshPriceBounds();   // resserre la jauge de prix sur les résultats de cette requête
     renderAdvResults(app);
   }catch(e){ box.innerHTML = `<p class="hint">Aucun résultat ou erreur (vérifiez la requête : "${esc(q)}").</p>`; }
 }
 /* tri délégué à Scryfall (globalement correct entre les pages) quand le mode le permet ;
    type / valeur-collection n'existent pas côté Scryfall -> tri local de la page */
-/* bornes de prix de la requête courante : 2 appels Scryfall (order=eur asc/desc, page 1)
-   -> la jauge de prix se resserre sur les cartes qui correspondent déjà aux filtres */
-async function refreshPriceBounds(q){
+/* resserre la jauge de prix sur les résultats courants — prix lus dans prices.db (dbPrice), jamais Scryfall */
+function refreshPriceBounds(){
   try{
-    const pOf = c => { const v = parseFloat(c.prices?.eur || c.prices?.eur_foil || ''); return isNaN(v) ? null : v; };
-    const qB = q.replace(/\s*eur:\[[^\]]*\]/g, '').replace(/\s*eur(?:>=|<=)[\d.]+/g, '').replace(/\s+/g, ' ').trim() || '*';   // bornes SANS le filtre prix (sinon auto-filtrage)
-    const jmax = await sfSearch(qB, 1, {order:'eur', dir:'desc'});
-    const jmin = await sfSearch(qB, 1, {order:'eur', dir:'asc'});
-    const mx = (jmax.data||[]).map(pOf).find(v => v != null);
-    const mn = (jmin.data||[]).map(pOf).find(v => v != null);
-    if(mx != null) setPriceBounds(mn != null ? mn : 0.01, mx);
+    if(!advLast || !advLast.data) return;
+    const ps = advLast.data.map(c => dbPrice(c.id, false)).filter(v => v != null && v > 0);
+    if(!ps.length) return;
+    setPriceBounds(Math.min(...ps), Math.max(...ps));
   }catch(e){}
 }
 
@@ -487,7 +482,7 @@ function advSortOrder(){
   if(!advSort) return null;
   const dir = advSort.endsWith('-desc') ? 'desc' : 'asc';
   const base = advSort.replace(/-(asc|desc)$/, '');
-  const map = {name:'name', date:'released', set:'set', price:'eur', cmc:'cmc'};
+  const map = {name:'name', date:'released', set:'set', cmc:'cmc'};   // price retiré : tri prix en local via dbPrice (sortCards), jamais Scryfall
   return map[base] ? {order: map[base], dir} : null;
 }
 /* affiche la page courante : filtre "collection" local + tri local si mode non Scryfall + pager */
@@ -497,6 +492,8 @@ function renderAdvResults(app){
   const ownMap = ownedQtyMap();
   let cards = advLast.data.slice();
   if(advF.owned && advOwnedLocal) cards = cards.filter(c => (ownMap.get(norm(c.name)+'|'+(c.set||'')) || 0) > 0);   // repli si >200 cartes
+  if(advF.pmin !== '') cards = cards.filter(c => (dbPrice(c.id, false) ?? Infinity) >= +advF.pmin);   // prix = prices.db (dbPrice), jamais Scryfall
+  if(advF.pmax !== '') cards = cards.filter(c => (dbPrice(c.id, false) ?? 0) <= +advF.pmax);
   const serverSorted = !!advSortOrder();
   if(advSort && !serverSorted) cards = sortCards(cards, advSort, ownMap);   // type / valeur collection : tri local page
   renderCardGrid(box, cards);
@@ -535,7 +532,7 @@ function cardTileHTML(c, cardLangs, ownMap){
   const langs = [...(cardLangs[c.set+'|'+k] || [c.lang])].map(l=>(l||'en').toUpperCase()).join('/');
   return `<div class="cardtile" data-name="${esc(c.name)}" data-set="${esc(c.set||'')}" data-cn="${esc(c.collector_number||'')}" style="cursor:pointer" title="Cliquez pour ouvrir la fiche carte (édition, prix, collection…)">
     ${q?`<span class="qtyb">×${q}</span>`:''}
-    <img src="${img}" loading="lazy" alt="${esc(c.name)}" data-zoom="${c.image_uris?.large || img}">
+    <img src="${esc(img)}" loading="lazy" alt="${esc(c.name)}" data-zoom="${esc(c.image_uris?.large || img)}">
     <div class="info">
       <div class="name">${esc(c.name)}</div>
       <div class="pill">${esc(c.set?.toUpperCase()||'')} · ${c.released_at?.slice(0,4)||''} · ${c.rarity||''} · ${langs}</div>

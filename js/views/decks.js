@@ -2,7 +2,7 @@ import { FMT_NAMES, $, $$, esc, norm, eur, fmtName, frDate, CONDS, COND_LABEL, L
 import { pushState, setSyncBadge, store, SYNC_KEYS, syncTimer } from '../core/store.js';
 import { loadEntries, rebuildIndex, addEntry, pullState, OLD_BINDERS, tags, entries, collection, myDecks, matches, saveColl, saveTags, saveMatches, saveDecks } from '../core/model.js';
 import { sfFetch, sfPump, sfCardByName, sfAutocomplete, getPrintCache, sfPrints, sfSetPrints, printFor, entryPrice, setIcon, sfSearchUrl, sfSearch, sfSets, sfArtists, entryPrintSync, sfCache, saveCache, sfQueue, PRINT_CACHE_KEY, ALL_LANGS_Q, SET_ICONS } from '../core/scryfall.js';
-import { parseDeck, parseLists, analyzeLists, buildEvents, loadData, analyze, DECKS, EVENTS, PDECKS } from '../core/decks.js';
+import { parseLists, analyzeLists } from '../core/decks.js';
 import { ordOf, isoOf } from '../core/pricedb.js';
 import { deriveTags, getCustomTags, addCustomTag, removeCustomTag, allTags, functionalProfile, similarQuery, similarityLabels, CUSTOM_TAGS, SIGS } from '../core/cards.js';
 import { openModal, closeModal } from '../ui.js';
@@ -193,7 +193,7 @@ async function renderT8Results(app){
   const rows = j.rows.map(e => {
     const open = t8.open.has(e.eid);
     return `<tr class="evrow${open?' open':''}" data-eid="${e.eid}"><td class="c-date" style="text-align:center">${frDate(e.date)}</td><td class="c-fmt" style="text-align:center"><span class="fmt">${esc(fmtShort(e.fmt))}</span></td><td class="c-name">${esc(e.name||'')}</td><td class="c-place" title="${esc(e.place||'')}">${esc(e.place||'—')}</td><td class="c-players" style="text-align:center">${e.players==null?'—':e.players}</td><td class="c-chev" style="text-align:center"><span class="chev">▸</span></td></tr>` +
-      `<tr class="evdetail" data-eid="${e.eid}"${open?'':' style="display:none"'}><td colspan="6">${open ? '<p class="hint">Chargement…</p>' : ''}</td></tr>`;
+      `<tr class="evdetail" data-eid="${esc(e.eid)}"${open?'':' style="display:none"'}><td colspan="6">${open ? '<p class="hint">Chargement…</p>' : ''}</td></tr>`;
   }).join('');
   box.innerHTML = `<div class="evscroll"><table class="evtable"><colgroup>${T8_COLW.map(w => `<col style="width:${w}%">`).join('')}</colgroup><thead><tr>${T8_COLS.map(([c]) => th(c)).join('')}<th class="c-chev" style="text-align:center"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="hint">Aucun tournoi ne correspond aux filtres.</td></tr>'}</tbody></table></div>
   <div class="row" style="justify-content:space-between;margin-top:8px">
@@ -428,9 +428,6 @@ function bindDeckView(container, rerender){
   const gsel = container.querySelector('#dvgroup');
   if(gsel) gsel.onchange = e => { dvGroup = e.target.value; rerender(); };
 }
-function showDeck(i){
-  showDeckData(DECKS[i]);
-}
 async function showDeckByDid(did){
   let j;
   try{ j = await (await fetch('/api/decks/deck?did=' + encodeURIComponent(did))).json(); }catch(e){ return; }
@@ -475,7 +472,7 @@ async function hydrateImage(name){
   try{
     const c = sfCache[norm(name)] || await sfCardByName(name);
     if(!c?.image) return;
-    lines.forEach(l => { l.querySelector('span').insertAdjacentHTML('afterbegin', `<img class="deckimg" src="${c.image}" loading="lazy">`); });
+    lines.forEach(l => { l.querySelector('span').insertAdjacentHTML('afterbegin', `<img class="deckimg" src="${esc(c.image)}" loading="lazy">`); });
   }catch(e){}
 }
 async function deckTagDistribution(cardList, box){
@@ -538,7 +535,7 @@ async function runPlayable(app){
   <p class="hint" style="margin-bottom:12px"><b>${j.total}</b> decks · dont <b>${n100}</b> jouables à 100%${j.cached ? '' : ' (recalcul en cours côté serveur…)'}</p>
   <div class="deck-list">${out.map(o => {
     const d = o.d, pct = Math.round(o.pct*100);
-    return `<div class="deck" data-did="${o.did}">
+    return `<div class="deck" data-did="${esc(o.did)}">
       <h3>${esc(d[3])} ${pct===100?'✅':''}</h3>
       <div class="meta"><span class="fmt">${fmtName(d[1])}</span> ${esc(d[4]||'')} · ${esc(d[5]||'')} · #${d[2]}<br>
         ${esc(d[6])} · ${esc(d[8])}</div>
@@ -609,7 +606,6 @@ async function vArchetypeAnalysis(app){
 R.views.decks = vDecks;   // le burger rouvre la liste des tournois (état des filtres conservé)
 R.views.playable = vPlayable;
 R.views.archetypes = a => { ar.arch = null; vArchetypes(a); };
-R.showDeck = showDeck;
 R.showDeckByDid = showDeckByDid;
 
-export { vDecks, analyzeList, gatherMeta, metaOf, typeBucket, groupCards, manaCurve, costColors, landProduces, deckLegalities, deckViewHTML, drawDeckCharts, bindDeckView, showDeck, showDeckByDid, showDeckData, hydrateImage, deckTagDistribution, vPlayable, runPlayable, vArchetypes, vArchetypeAnalysis, dvGroup, TYPE_ORDER, LEGAL_FMTS, pf, ar, archSide };
+export { vDecks, analyzeList, gatherMeta, metaOf, typeBucket, groupCards, manaCurve, costColors, landProduces, deckLegalities, deckViewHTML, drawDeckCharts, bindDeckView, showDeckByDid, showDeckData, hydrateImage, deckTagDistribution, vPlayable, runPlayable, vArchetypes, vArchetypeAnalysis, dvGroup, dvTab, TYPE_ORDER, LEGAL_FMTS, pf, ar, archSide };

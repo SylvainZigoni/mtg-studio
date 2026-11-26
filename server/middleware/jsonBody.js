@@ -1,11 +1,10 @@
 /* Parse le body JSON des requêtes POST/PUT/DELETE une seule fois (req.body).
-   En cas d'erreur de parse, req.bodyError est renseigné (les contrôleurs répondent 400). */
-import { readBody } from '../utils/http.js';
+   En cas d'erreur de parse, req.bodyError est renseigné (les contrôleurs répondent 400).
+   Le body est lu même sans Content-Length (chunked), avec un plafond de 10 Mo (413). */
+import { readBody, sendJson } from '../utils/http.js';
 
 export function jsonBody(req, res, next) {
   if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next();
-  const len = Number(req.headers['content-length'] || 0);
-  if (!len) { req.body = {}; return next(); }
   readBody(req).then(buf => {
     try {
       req.body = JSON.parse(buf.toString('utf8'));
@@ -14,5 +13,8 @@ export function jsonBody(req, res, next) {
       req.bodyError = String(e.message || e);
     }
     next();
-  }).catch(next);
+  }).catch(e => {
+    if (e && e.code === '413') return sendJson(res, 413, { ok: false, error: 'body trop volumineux (> 10 Mo)' });
+    next(e);
+  });
 }

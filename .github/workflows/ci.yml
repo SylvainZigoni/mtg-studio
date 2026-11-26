@@ -18,14 +18,25 @@ jobs:
         with:
           node-version: '22.x'   # package.json engines: node >= 22.5
 
-      - name: Syntaxe JS (node --check sur server/ et js/)
+      - name: Syntaxe JS (node --check sur server/, js/, .vibe/hooks/)
         run: |
-          find server js -name '*.js' -print0 | while IFS= read -r -d '' f; do
+          find server js .vibe/hooks -name '*.js' -print0 | while IFS= read -r -d '' f; do
             node --check "$f" || exit 1
           done
 
       - name: Syntaxe Python (scripts racine)
         run: python3 -m py_compile price_seed.py scraper.py crawl.py scrape_run.py scrape_year.py check_scrape.py
+
+      - name: Anti-régression (patterns interdits dans le code)
+        run: |
+          # chaque ligne échoue le step si le pattern est trouvé (git grep exit 0 = match)
+          ! git grep -n 'GET /api/decks"' -- server js index.html          # endpoint supprimé, ne pas ressusciter
+          ! git grep -n 'decks\.json' -- server js index.html              # dataset abandonné
+          ! git grep -n "order:'eur'" -- js                                # jamais de tri prix via Scryfall
+          ! git grep -n 'eur>=\|eur<=' -- js                               # jamais de filtre prix via Scryfall
+          ! git grep -n 'console\.log' -- js                               # pas de logs côté client
+          ! git grep -nE '(fillStyle|strokeStyle)[^;]*var\(--' -- js       # canvas ne résout pas var(--…)
+          ! git grep -l $'\r' -- '*.js' '*.py' '*.md' '*.html' '*.css' '*.yml' '*.toml'   # projet 100 % LF
 
       - name: Boot serveur + smoke API (port 3999)
         run: |
@@ -36,6 +47,14 @@ jobs:
           HTML=$(curl -sf http://localhost:3999/)
           echo "$HTML" | grep -q 'js/main.js'
           ! echo "$HTML" | grep -q 'cloudflareinsights'   # regression anti-beacon
+          ! echo "$HTML" | grep -q 'pickbtn'               # code mort decks.json retiré
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3999/mtg_data.db)
           [ "$code" = "404" ] || [ "$code" = "403" ]      # les *.db ne sont jamais servis
+          # bases absentes en CI (gitignées) -> 503 avec message clair, jamais de 500
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3999/api/prices/last)" = "503" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3999/api/decks/meta)" = "503" ]
+          # body > 10 Mo -> 413 ; body valide -> 200
+          python3 -c "import sys; sys.stdout.write('{\"k\":\"' + 'a'*11*1024*1024 + '\"}')" > /tmp/big.json
+          [ "$(curl -s -o /dev/null -H 'Expect:' -w '%{http_code}' -X POST --data-binary @/tmp/big.json -H 'Content-Type: application/json' http://localhost:3999/api/state)" = "413" ]
+          curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:3999/api/state
           kill $SRV

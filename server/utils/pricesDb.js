@@ -19,7 +19,9 @@ export function getPricesDb() {
 export function blobPoints(blob) {
   if (!blob) return [];
   const b = Buffer.from(blob);
+  if (b.length < 4) return [];
   const n = b.readUInt32LE(0);
+  if (b.length < 4 + 8 * n) return [];   // blob tronqué/corrompu : ne pas lever
   const out = new Array(n);
   for (let i = 0; i < n; i++) out[i] = [b.readInt32LE(4 + 8 * i), b.readFloatLE(8 + 8 * i)];
   return out;
@@ -29,7 +31,9 @@ export function blobPoints(blob) {
 export function blobAt(blob, day) {
   if (!blob) return null;
   const b = Buffer.from(blob);
+  if (b.length < 4) return null;
   const n = b.readUInt32LE(0);
+  if (b.length < 4 + 8 * n) return null;   // blob tronqué/corrompu : ne pas lever
   let lo = 0, hi = n;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;

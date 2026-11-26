@@ -6,7 +6,7 @@ description: "Invoquer pour préparer une release : bump de version (source uniq
 # Release
 
 1. Version dans **`package.json`** (`"version"`) = seule source de vérité ; synchroniser
-   la meta `version` de `index.html` si elle existe encore.
+   obligatoirement la meta `version` de `index.html` (elle existe).
 2. Changelog : bloc de version en tête de `README-APP.md` (format `2026-11-14b`).
 3. Vérifications avant release : skill `test-smoke` complet, `git status` propre,
    `LICENSE` présent, skill `security-check` passé.

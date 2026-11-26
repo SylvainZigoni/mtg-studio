@@ -14,9 +14,6 @@ description: "Invoquer pour tout ce qui alimente les bases : price_seed.py (prix
    `POST /api/scrape`, log `scrape.log`, statut `scrape_status.json`, progression
    `GET /api/scrape/status`), `check_scrape.py` (contrôle lecture seule).
    Anti-doublon : PK + `INSERT OR IGNORE`.
-3. MTGJSON publie avec **1 jour de décalage** (AllPricesToday du J = prix du J-1).
-4. **Papier uniquement** : `availability` contient `"paper"`, côté Scryfall `digital=false` / `game:paper`.
-5. Point de prix « aberrant » = `<= 0 €` uniquement ; les vrais prix bas (0,02–0,09 €) calculent une évolution.
-6. Ne jamais passer un gros script de patch en heredoc bash (tronqué silencieusement) :
-   l'écrire via `write_file` dans `price_cache/` puis `python price_cache/<script>.py`.
-7. Ne jamais modifier `prices.db` à la main : passer par `price_seed.py`.
+3. Règles communes des données externes (MTGJSON publie avec 1 jour de décalage, papier uniquement, point de prix « aberrant » `<= 0 €`) : `gotchas.md` → « Données externes » et « Prix ».
+4. Ne jamais passer un gros script de patch en heredoc bash (tronqué silencieusement) : `gotchas.md` → « Avant de coder » (`write_file` dans `price_cache/` puis `python price_cache/<script>.py`).
+5. Ne jamais modifier `prices.db` à la main : passer par `price_seed.py`.

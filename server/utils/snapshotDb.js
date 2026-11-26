@@ -1,5 +1,5 @@
 /* mtgtop8.sqlite (lecture seule) — base brute du scraper MTGTop8,
-   désormais source unique des decks servis à l'app (GET /api/decks). */
+   désormais source unique des decks servis à l'app (/api/decks/*). */
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';

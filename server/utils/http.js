@@ -11,12 +11,26 @@ export function sendJson(res, code, obj) {
   res.end(body);
 }
 
-/** Lit le body brut de la requête. */
-export function readBody(req) {
+/** Plafond du body requêté (évite un OOM sur un gros POST). */
+export const MAX_BODY = 10 * 1024 * 1024;   // 10 Mo
+
+/** Lit le body brut de la requête, plafond maxBytes (reject avec code '413' si dépassé). */
+export function readBody(req, maxBytes = MAX_BODY) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', c => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    let size = 0, tooBig = false;
+    req.on('data', c => {
+      size += c.length;
+      if (size > maxBytes && !tooBig) {
+        tooBig = true;
+        reject(Object.assign(new Error('body too large'), { code: '413' }));
+        req.removeAllListeners('data');   // on n'accumule plus
+        req.resume();                      // on vide le stream pour laisser la réponse 413 passer
+        return;
+      }
+      if (!tooBig) chunks.push(c);
+    });
+    req.on('end', () => { if (!tooBig) resolve(Buffer.concat(chunks)); });
     req.on('error', reject);
   });
 }

@@ -2,7 +2,7 @@
 /* ============================================================
    MTG Studio — app.js
    Collection + Decks MTGTop8 2026 + Matchs + Stats + Tags
-   Version 2026-11-16a (phase 1 : client découpé en modules ES) */
+   Version 2026-11-16b (phase 1 : client découpé en modules ES) */
 
 /* ---------------- utilitaires ---------------- */
 const FMT_NAMES = {MO:"Modern", LE:"Legacy", VI:"Vintage", PAU:"Pauper", PREM:"Premodern", EDH:"Duel Commander"};

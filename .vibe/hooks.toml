@@ -1,0 +1,35 @@
+# Hooks Vibe du projet MTG Studio (dossier trusté — voir ~/.vibe/trusted_folders.toml).
+# Chaque hook = un script node dans .vibe/hooks/ qui lit le payload JSON sur stdin
+# et répond exit 0 + stdout JSON {"decision":"deny","reason":"..."} pour bloquer.
+# Règle : transformer les "ne jamais" de AGENTS.md/gotchas.md en blocages exécutables.
+
+[[hooks]]
+name = "deny-risky-bash"
+type = "pre_tool"
+match = "re:bash|process_start"
+strict = true
+command = "node .vibe/hooks/guard-bash.js"
+description = "Bloque pkill, >nul, rm -rf racine, push/force-push vers main|developpement, python -m http.server"
+
+[[hooks]]
+name = "deny-env-access"
+type = "pre_tool"
+match = "re:read_file|write_file|edit|bash|process_start"
+strict = true
+command = "node .vibe/hooks/guard-env.js"
+description = "Bloque tout accès (lecture/écriture/commande) à un fichier .env"
+
+[[hooks]]
+name = "lf-only-writes"
+type = "pre_tool"
+match = "re:write_file|edit"
+strict = true
+command = "node .vibe/hooks/guard-lf.js"
+description = "Bloque toute écriture contenant un retour chariot (projet 100 % LF)"
+
+[[hooks]]
+name = "session-context"
+type = "session_start"
+match = "startup"
+command = "node .vibe/hooks/session-context.js"
+description = "Injecte le résumé des règles absolues en début de session"

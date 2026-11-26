@@ -116,10 +116,11 @@ export async function mkmRoute(req, res) {
     }
     if (sub.startsWith('article/')) {
       const aid = sub.split('/')[1];
+      if (!/^\d+$/.test(aid || '')) return sendJson(res, 400, { ok: false, error: 'aid invalide (nombre attendu)' });
       if (payload._delete) {
-        ({ status: st, json: j } = await mkmRequest('DELETE', `/users/${enc(username)}/article/${aid}`));
+        ({ status: st, json: j } = await mkmRequest('DELETE', `/users/${enc(username)}/article/${enc(aid)}`));
       } else {
-        ({ status: st, json: j } = await mkmRequest('PUT', `/users/${enc(username)}/article/${aid}`, null, payload.article));
+        ({ status: st, json: j } = await mkmRequest('PUT', `/users/${enc(username)}/article/${enc(aid)}`, null, payload.article));
       }
       return sendJson(res, st || 502, { ok: st === 200, status: st, response: j });
     }

@@ -20,7 +20,7 @@ export function createApp() {
       req.query = parseQuery(req.url);
 
       const runMiddleware = async i => {
-        if (i < middlewares.length) return middlewares[i](req, res, err => runMiddleware(i + 1).catch(err2 => Promise.reject(err || err2)));
+        if (i < middlewares.length) return middlewares[i](req, res, err => err ? Promise.reject(err) : runMiddleware(i + 1));
         const r = routes.find(r =>
           r.method === req.method && (r.prefix ? req.path.startsWith(r.path) : req.path === r.path));
         if (!r) return fallback(req, res);

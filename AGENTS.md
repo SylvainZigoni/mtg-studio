@@ -1,48 +1,82 @@
-# MTG Studio — règles et contexte pour l'agent
+# MTG Studio — instructions pour l'agent
 
-## Fichiers à lire avant toute tâche
+Application web **locale** de collection Magic: The Gathering + méta MTGTop8 2026.
+Serveur Node.js **zéro dépendance npm** (`node:http` + `node:sqlite`, Node ≥ 22.5) :
+`node server/server.js [port]` (défaut 3000, `npm start` équivalent) → http://localhost:3000
+(Ctrl+F5 pour vider le cache). Windows, machine de Sylvain. Projet perso, 100 % local.
 
-Avant de commencer n'importe quelle tâche, lire obligatoirement gotchas.md
+## Lecture obligatoire avant toute tâche
 
-**Fins de ligne : LF partout.** Dépôt et disque normalisés en LF (`.gitattributes` `* text=auto eol=lf`, `core.autocrlf=false` en local) : modifier les fichiers directement, ne jamais réécrire un fichier en CRLF (hook pre-commit anti-`\r` actif en local).
+1. `gotchas.md` — pièges et règles « ne jamais » (à lire en entier).
+2. `API.md` — §0 (les 3 bases, quelle source de données pour quoi) puis §2/§3 (endpoints) avant toute fonctionnalité.
+3. `skills/<nom>/SKILL.md` (index : `skills/README.md`) — invoquer dès que la tâche correspond à la `description` du skill (git, tests, sécurité, SQLite, endpoints, front, pipelines, fins de ligne, doc, release, packaging).
 
-Skills réutilisables dans `skills/<nom>/SKILL.md` : les invoquer quand la tâche correspond à leur `description` (index dans `skills/README.md`).
+## Règles absolues (ne jamais violer)
 
-Application web locale de collection Magic: The Gathering + méta MTGTop8 2026.
-Dossier : `App MTG`, lancée avec `node server/server.js` (ou `npm start`, Node >= 22.5, zéro dépendance npm), ouverte sur http://localhost:3000 (Ctrl+F5 pour vider le cache). Windows, machine de Sylvain.
+- **LF partout** : dépôt et disque en LF (`.gitattributes` `eol=lf`, `core.autocrlf=false`) — modifier les fichiers directement, jamais de réécriture en CRLF (hook pre-commit anti-`\r`).
+- **Prix = `prices.db` uniquement** : jamais de prix ni de recherche Marché via Scryfall (Scryfall = métadonnées/recherche avancée uniquement, toujours `game:paper`). Lire `API.md` §0/§3 avant de choisir une source de données.
+- **`*.db` jamais servis en HTTP** ; ne jamais lire/éditer les fichiers `.env` ; l'app n'est jamais exposée publiquement.
+- **Grepper avant d'écrire** : jamais de fonction ou d'endpoint parallèle à un existant — réutiliser ou généraliser.
+- **Lire un fichier avant de l'éditer** ; diff minimal ; ne toucher que ce qui est demandé.
+- **`index.html` + `js/` toujours modifiés de façon cohérente** (js récent + index ancien = boot bloqué avant tout fetch ; garde `if(!$('#sidebar') || !$('#burger'))` dans `js/main.js`).
+- **Ne jamais tuer un process node à l'aveugle** (`pkill` n'existe pas en Git Bash ; le serveur de l'utilisateur tourne sur :3000) : tester sur un **port neuf**, tuer ciblé par PID (`netstat -ano | findstr :PORT` + `taskkill //PID <pid> //F`).
+- **Jamais `2>nul`** (crée un fichier littéral `nul`) ni `/tmp` pour Python sous Windows → utiliser `price_cache/` (gitigné).
+- Ne jamais suggérer `python -m http.server` (pas de POST).
 
-## Fichiers
+## Commandes
 
-- `server/server.js` + `server/` : serveur HTTP **Node.js zéro dépendance** (`node:http` + `node:sqlite`), découpé en `routes/` (mapping méthode+path), `controllers/` (logique métier), `middleware/` (logger, body JSON, fichiers statiques), `utils/` (paths, db, pricesDb, http, oauth). Sert l'app (index.html, css/, js/) ET enregistre les saisies (collection, classeurs, matchs, tags, decks perso, réglages MKM) dans `mtg_data.db` (SQLite créé à côté, WAL). Les `*.db` ne sont PAS servis en HTTP. Port : `node server/server.js [port]` (3000 par défaut). Ne jamais suggérer `python -m http.server` (pas de POST).
-- `package.json` : `"type": "module"`, `npm start` = `node server/server.js`.
-- `index.html` + `css/` + `js/` : application monopage découplée (branche `dev-client`). `index.html` charge `css/reset.css` PUIS `css/app.css`, puis `<script type="module" src="js/main.js">`. Le client est découpé en modules ES : `js/main.js` (boot, routage, recherche globale), `js/ui.js`, `js/core/` (util, store, scryfall, model, decks, cards, registry — le registry `R`/`S` évite les imports circulaires entre vues), `js/views/` (collection, browse, decks, matches, stats, cardinfo, mydecks, market, statscoll, settings). **Toujours modifier index.html et js/ de façon cohérente** : un js/ récent avec un index.html ancien fait planter le boot avant tout fetch ("Chargement des 41 366 decks…" sans fin). `js/main.js` a un garde `if(!$('#sidebar') || !$('#burger'))` pour détecter ce cas.
-- `mtgtop8.sqlite` : base du scraper MTGTop8 (tournois 2026, decks, cartes) ; servie à l'app par `GET /api/decks/search` (paginé, FTS5 trigram, cache COUNT, keyset date), `GET /api/decks/deck?did=`, `GET /api/decks/meta`, `GET /api/decks/stats`, `GET /api/decks/playable`, `GET /api/decks/arch`, `GET /api/decks/topcards` (index: `ix_events_date`, `ix_decks_format`, `ix_cards_did`, `ix_decks_eid`, FTS5 `decks_fts`). `decks.json.gz` n'est plus utilisé par l'app.
-- `prices.db` : historique de prix Cardmarket (SQLite, ~103 935 séries + 120 143 cartes, seed 14/11/2026).
-- `price_seed.py` : construit/met à jour prices.db depuis MTGJSON. Modes : `prices` (re-seed complet), `cards`, `cardsmeta` (AllPrintings.json.gz -> métadonnées cards : artist/colors/type_line/cmc/rarity/reserved/lang), `today` (appelé en arrière-plan par le serveur via POST /api/price/today), `weekly` (fusion fenêtre 3 mois, idempotent, auto-réparateur : comble tout trou ≤ 3 mois). Reste en Python (stdlib).
-- `scraper.py` + `crawl.py` + `scrape_run.py` + `scrape_year.py` + `check_scrape.py` (outil de controle lecture seule, non publie dans le client) : scraper MTGTop8 -> `mtgtop8.sqlite` (servie à l'app via `/api/decks`). `scraper.py` scrappe l'année en cours (YEAR dynamique) ; `scrape_year.py <annee> <FORMAT> [secs] [--recheck]` scrappe une année x un format précis (anti-doublon par PK + INSERT OR IGNORE) ; `--recheck` remet d'abord les events du couple à fetched=0 pour re-lister leurs decks et compléter sans doublon. (DB = `mtgtop8.sqlite` a cote, chemins relatifs au dossier). Lancable depuis l'app : POST /api/scrape -> spawn `scrape_run.py` (phase1 + crawl) en arriere-plan, log `scrape.log`, statut `scrape_status.json`, progression via GET /api/scrape/status. Bouton dans la vue Parametres.
-- `mtgtop8.sqlite` : base brute des tournois.
-- `README-APP.md` : mode d'emploi (3 niveaux de mise à jour).
+| Action | Commande |
+|---|---|
+| Lancer l'app | `node server/server.js` (ou `npm start`), port 3000 |
+| Health check | `curl http://localhost:3000/api/health` |
+| Tester un changement | `node server/server.js 3999` + `curl` des endpoints touchés, puis kill par PID |
+| Syntaxe JS modifiée | `node --check <fichier.js>` |
+| Syntaxe Python modifiée | `python -m py_compile <fichier.py>` |
+| Prix du jour / fusion hebdo | `python price_seed.py today` / `weekly` (aussi via `POST /api/price/today`) |
+| Scrape MTGTop8 | `python scrape_run.py`, ou `POST /api/scrape` (status : `GET /api/scrape/status`) ; ciblé : `python scrape_year.py <annee> <FORMAT> [secs] [--recheck]` ou `POST /api/scrape/one` |
 
-## Architecture clé
+## Arborescence
 
-- MTGJSON AllPrices ne fournit que ~3 mois d'historique → accumulation : point quotidien (today) + fusion weekly qui comble les trous ≤ 3 mois.
-- Endpoints serveur Node (server/routes) : `/api/state` (GET/POST), `/api/health`, `/api/price` (?sfid=/?uuid=/?set=&cn=), `/api/market` (top/flop, fenêtres 1w/1m/1y/3y/5y/10y/rel, scope all|collection, cache 12h, clé cache = scope|w hors limit), `/api/collvalue`, `/api/setvalues` (valeur totale de chaque extension en 1 requête SQL depuis prices.db, cache 12h), `/api/pricerange` (min/max des prix pour la jauge de filtre), `/api/price/today` (GET et POST, spawn `python price_seed.py today` en arrière-plan), `/api/prices/last` (map scryfall_id -> [last_norm, last_foil] depuis prices.db, cache invalidé par le mtime du fichier — SOURCE UNIQUE des prix affichés côté client via `js/core/pricedb.js`), `/api/prices/days` (jours historisés {from,to,days[]} pour la timeline vert/rouge affichée dans Marché et Paramètres, `mountPriceTimeline` dans `js/core/pricedb.js`), `/api/market/cards` (vue Marché cartes : filtres SQL sur la table cards enrichie, tri GLOBAL, pagination, KPI + histogramme + indice moyen + sparklines par ligne ; cache 12h par requête), `/api/market/sets` (vue Marché éditions : coût avant→après par extension, 1 valorisation par impression et par finition (normal+foil, même dédup picked que /api/market/cards), évol. €/%, impact collection sur la finition possédée ; tri client, cache 12h par fenêtre from|to), `/api/price/status` + `/api/price/seed` (bouton Paramètres de mise à jour de prices.db), `/api/mkm/settings` (GET/POST), `/api/mkm/*` (POST, proxy OAuth 1.0a signé HMAC-SHA1 vers api.cardmarket.com). SYNC_KEYS = mtg_collection/mtg_binders/mtg_matches/mtg_custom_tags/mtg_decks. Fichiers statiques : / -> index.html, Last-Modified + 304, `Cache-Control: no-cache` sur le HTML.
-     `/api/scrape` (POST, scraping année en cours tous formats) + `/api/scrape/one` (POST {year,format,seconds}, scraping ciblé) + `/api/scrape/status` (GET) + `/api/scrape/grid` (GET, nb de decks scrapés par format x année, lu dans la snapshot — tableau Paramètres) ; `/api/decks` + `/api/decks/meta` (GET) servent les decks à l'app depuis la snapshot SQLite
-- Price blobs prices.db : uint32 count puis paires (int32 jour ordinal, float32 prix). `struct.iter_unpack` exige un slice exact `memoryview(blob)[4:4+8*n]`, prix à offset +4 dans l'enregistrement.
-- Parsing JSON streaming (classe Stream dans price_seed.py) : virgules via skip_ws, chaînes/nombres coupés entre buffers, colonnes "set" quoted, fichiers MTGJSON enveloppés dans `data`.
-- Client (js/) : prix affichés = toujours prices.db (`js/core/pricedb.js`, chargé au boot dans `main.js` ; `entryPrice`/tuiles/popup lisent la map par scryfall_id). Exception : repli Scryfall pour le calcul de valeur de set UNIQUEMENT si prices.db absent. `store.set` (js/core/store.js) ne fait pushState que si window.__booted. Index DECKS : d[3]=nom deck, d[4]=archétype, d[5]=joueur, d[9]=eid, d[10]/d[11]=main/side, d[12]=players. Caches sfCache/print par norm(name).
-- Vues : burger/sidebar, recherche globale, Marché refondu (switch Cartes/Éditions — vue Éditions livrée : priceline à 2 curseurs commune aux 2 vues, tableau des extensions triable via /api/market/sets, clic sur une ligne = vue Cartes filtrée sur cette extension avec les autres filtres remis à zéro ; filtres type recherche avancée sans jauge prix, jauge de dates 2 curseurs sur jours historisés, KPI+histo+indice, table triable serveur avec vignette/rareté/sparkline, pagination 25), decks perso (vMyDecks/openMyDeck, changelog, commentaires, autocomplete, comparaison collection), visualiseur partagé (dvGroup type/CMC, dvTab main/side, chartBars mana, chartDonut coûts/lands, deckLegalities), collection (NM, langues, signée, addedAt, badges RL), vMarket, vStatsColl, vSettings Cardmarket + CSV "a vendre", loadPriceChart/drawPriceChart via /api/price?sfid=.
-- **Popup carte unique** (branche `dev-zoom_carte`) : tout clic sur une carte ouvre la modale `R.showCardInfo(name, _, ctx)` (`js/views/cardinfo.js`, modale `.wide` 1060 px) — édition cliquée si `ctx={set,cn}` est connu (browse/collection/marché/cartes similaires), sinon 1re impression ; la recherche globale ouvre aussi la popup. Contenu : image de l'édition + badges ×N (édition / total, tooltips « X de cette édition dans la collection » / « Y toutes éditions confondues… »), dropdown éditions (nom seul, tri alpha fr) qui recharge image, n°, prix, langues, badges, sparkline et « dans collection », prix `prices.db` par scryfall_id du print (fallback : derniers prix connus de la carte), langues en drapeaux (`langFlagHTML` -> `/assets/icons/flags/<code>.svg`), « Dans collection » de l'édition courante en pills (état `cond-*`, foil/signée `icpill`, drapeau nu), bloc Ajouter (dropdown langue custom `.langdd` langue a gauche + drapeau a droite, état, foil, signée, qté, tags -> `addEntry` + `R.refreshTileOwned` + fermeture), sparkline 2 courbes normal/foil via `R.drawSpark` (meme modele que Marché, données `/api/price?sfid=`), métadonnées + tags perso, « Texte Oracle » + lien Scryfall, cartes ressemblantes dédoublonnées par nom avec « Charger plus » ; boule de rareté via `R.rarityDotHTML` (scopée `.cp-right h2 .rarity-dot`, 0.8 em). `openAddPopup` est supprimé (remplacé par cette popup) ; `sfSetPrints` renvoie le print complet (id, oracle, image_lg…) ; `R.drawSpark(cv, pts, opts)` est généralisée multi-séries.
+```
+MTG Studio/                  racine du dépôt
+├── server/                  serveur HTTP zéro dep : server.js, app.js + routes/ controllers/ middleware/ utils/
+├── index.html + css/ + js/  client monopage en modules ES (main.js, ui.js, core/, views/)
+├── skills/                  skills réutilisables (index dans skills/README.md)
+├── mtg_data.db              état app (collection, classeurs, matchs, tags, decks perso, réglages MKM) — WAL, jamais servie
+├── prices.db                prix Cardmarket + métadonnées cartes + séries temporelles (price_seed.py / MTGJSON)
+├── mtgtop8.sqlite           tournois/decks MTGTop8 2026 — exposés via /api/decks/*
+├── price_seed.py            seed/màj de prices.db (modes : today, weekly, cards, cardsmeta, prices) — Python stdlib
+├── scraper.py, crawl.py, scrape_run.py, scrape_year.py, check_scrape.py   scraping MTGTop8 (check_scrape.py = lecture seule, non publié dans le client)
+├── API.md                   source de vérité des endpoints + schémas des 3 BDD
+├── README-APP.md            mode d'emploi humain (3 niveaux de mise à jour)
+├── gotchas.md               pièges du projet — à lire avant toute tâche
+└── AGENTS.md                ce fichier
+```
 
-## Pièges SQLite
+## Contexte par zone (AGENTS.md imbriqués)
 
-- `set` est un mot-clé → toujours `"set"` quoted (valable aussi pour les requêtes node:sqlite dans server/).
-- last_date a une affinité TEXT (int → text ; ex "739858").
-- node:sqlite : blobs lus en Uint8Array (Buffer.from(blob)), `new DatabaseSync(path, {readOnly:true})` pour prices.db, `PRAGMA journal_mode=WAL` sur mtg_data.db. Les écritures sont synchrones (pas de lock nécessaire, la boucle d'événements sérialise).
+Vibe charge automatiquement l'AGENTS.md du dossier touché (découverte lazy) :
 
-## Décisions déjà prises (ne pas rouvrir sans demande)
+- `server/AGENTS.md` — serveur : routage, conventions de réponse, caches mtime/WAL, pièges SQLite
+- `js/AGENTS.md` — client : modules ES, `esc()`, prix = `prices.db` uniquement, index DECKS, popup carte, thèmes
+- Communs : `API.md` (endpoints + schémas des 3 BDD), `gotchas.md` (pièges, lu avant toute tâche), `skills/` (procédures)
 
-- Decks MTGTop8 servis depuis la snapshot SQLite via `/api/decks` (décision 2026-11-17, remplace decks.json.gz).
+Invariants clés : 3 bases = `mtg_data.db` (état, `SYNC_KEYS`) / `prices.db` (prix + métas) / `mtgtop8.sqlite` (decks) ; prix affichés côté client = `GET /api/prices/last` → `dbPrice()` ; decks servis à la demande via `/api/decks/search|deck|meta|stats|playable|arch|topcards` (`decks.json.gz` abandonné) ; MTGJSON ~3 mois d'historique → `price_seed.py today` quotidien + `weekly`.
+
+## Git
+
+Base de travail = `developpement` (jamais `main` directement), une branche `dev-<sujet>` par tâche, PR avec CI verte (`smoke`) obligatoire — procédure complète dans le **skill `git-workflow`**. Ne jamais pousser sur `developpement`/`main` sans demande explicite.
+
+## Avant de livrer (definition of done)
+
+1. `node --check` sur chaque JS modifié, `python -m py_compile` sur chaque Python modifié.
+2. Boot sur un **port neuf** + `curl` des endpoints touchés (JSON parsé).
+3. Skill `test-smoke` ; documentation à jour dans le **même commit** (skill `docs-update` : `README-APP.md` / `API.md` / `AGENTS.md` / `gotchas.md` selon le cas).
+
+## Décisions actées (ne pas rouvrir sans demande)
+
+- Decks MTGTop8 servis depuis `mtgtop8.sqlite` via `/api/decks` (décision 2026-11-17, remplace `decks.json.gz`).
 - L'app reste locale ; pas d'exposition publique.
 - Mise à jour hebdo des prix/decks gérée via `price_seed.py weekly` + Planificateur de tâches Windows (`0 9 * * 1` recommandé).
-- Thèmes UI : `css/themes.css` (sélecteurs `html[data-theme="..."]`, chargé après `app.css`), liste/apply dans `js/core/themes.js`, sélecteur dans la vue Paramètres ; choix persisté en localStorage (`mtg_theme`) et appliqué avant peinture par un script inline dans `index.html` (anti-FOUC). Thème par défaut : `darkmode`.
+- Thèmes UI comme décrit ci-dessus ; thème par défaut `darkmode`.
+- La popup carte unique remplace `openAddPopup` (supprimé).
