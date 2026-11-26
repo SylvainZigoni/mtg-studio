@@ -28,6 +28,7 @@ import { R, S } from '../core/registry.js';
    - déplié : decks du tournoi triés rang croissant, égalité de rang
      -> ordre alphabétique du nom du deck ; clic ligne -> showDeck
    ============================================================ */
+const fmtN = v => (v || 0).toLocaleString('fr-FR');   // séparateur de milliers (comme dans market.js)
 const T8_BUCKETS = [['ALL','Nombre de joueur'],['gt19','+19 joueurs'],['gt49','+49 joueurs'],['gt99','+99 joueurs'],['gt199','+199 joueurs']];
 const T8_COLS = [['date','Date'],['fmt','Format'],['name','Nom du tournoi'],['place','Lieu'],['players','Joueurs']];
 const T8_COLW = [10, 8, 45, 25, 10, 2];   // % : date, format, nom, lieu, nb joueurs, flèche
@@ -219,12 +220,12 @@ async function renderT8Results(app){
   catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
   if(!j || !j.ok){ box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return; }
   const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), dt = j.decksTotal || 0;
-  kpi.innerHTML = `<div class="big">${total} tournoi${total>1?'s trouvés':' trouvé'}</div><div class="big2">${dt} decks</div>`;
+  kpi.innerHTML = `<div class="big">${fmtN(total)} tournoi${total>1?'s trouvés':' trouvé'}</div><div class="big2">${fmtN(dt)} decks</div>`;
   const am = new Map();
   (j.archs || []).forEach(a => { const k = a.arch || '(sans archétype)'; am.set(k, (am.get(k) || 0) + a.n); });
   const al = [...am.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
   arch.innerHTML = al.length
-    ? al.map(([a,n]) => `<div class="arch-item" data-arch="${esc(a)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${dt ? Math.round(n/dt*100) : 0}%</span></div>`).join('')
+    ? al.map(([a,n]) => `<div class="arch-item" data-arch="${esc(a)}"><span>${esc(a)}</span><span class="hint">${fmtN(n)} deck${n>1?'s':''} · ${dt ? Math.round(n/dt*100) : 0}%</span></div>`).join('')
     : '<p class="hint">Aucun deck dans les tournois filtrés.</p>';
   const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_COLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
   const rows = j.rows.map(e => {
@@ -282,7 +283,7 @@ async function renderT8Player(app){
   catch(e){ box.innerHTML = '<p class="hint">Erreur réseau (GET /api/decks/search).</p>'; return; }
   if(!j || !j.ok){ box.innerHTML = `<p class="hint">${esc((j && j.error) || 'Erreur inconnue.')}</p>`; return; }
   const total = j.total, pages = Math.max(1, Math.ceil(total / 25)), et = j.eventsTotal || 0;
-  kpi.innerHTML = `<div class="big">${total} deck${total>1?'s trouvés':' trouvé'}</div><div class="big2">${et} tournoi${et>1?'s':''}${t8.mode==='cd' ? ` · « ${esc(t8.q)} »` : ''}</div>`;
+  kpi.innerHTML = `<div class="big">${fmtN(total)} deck${total>1?'s trouvés':' trouvé'}</div><div class="big2">${fmtN(et)} tournoi${et>1?'s':''}${t8.mode==='cd' ? ` · « ${esc(t8.q)} »` : ''}</div>`;
   const byFmt = new Map();
   (j.archs || []).forEach(a => {
     const f = fmtShort(a.fmt), an = a.arch || '(sans archétype)';
@@ -296,7 +297,7 @@ async function renderT8Player(app){
     const m = byFmt.get(f);
     const items = [...m.entries()].sort((x,y) => y[1]-x[1] || norm(x[0]).localeCompare(norm(y[0])));
     ahtml += `<div class="arch-fmt">${esc(f)}</div>` + items.map(([a,n]) =>
-      `<div class="arch-item" data-arch="${esc(a)}" data-fmt="${esc(f)}"><span>${esc(a)}</span><span class="hint">${n} deck${n>1?'s':''} · ${total ? Math.round(n/total*100) : 0}%</span></div>`).join('');
+      `<div class="arch-item" data-arch="${esc(a)}" data-fmt="${esc(f)}"><span>${esc(a)}</span><span class="hint">${fmtN(n)} deck${n>1?'s':''} · ${total ? Math.round(n/total*100) : 0}%</span></div>`).join('');
   }
   arch.innerHTML = ahtml || '<p class="hint">Aucun deck ne correspond aux filtres.</p>';
   const th = c => `<th data-col="${c}" class="c-${c}" style="text-align:center">${T8_PCOLS.find(x => x[0]===c)[1]}${t8.sortCol===c ? `<span class="arr">${t8.sortDir==='desc'?'▼':'▲'}</span>` : ''}</th>`;
