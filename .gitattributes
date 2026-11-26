@@ -1,0 +1,4 @@
+# Projet 100 % LF — ne jamais réécrire les fichiers en CRLF (voir gotchas.md).
+# Le dépôt est normalisé en LF ; le disque aussi (core.autocrlf=false en local).
+* text=auto eol=lf
+*.png binary
