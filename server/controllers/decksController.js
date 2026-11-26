@@ -2,7 +2,7 @@
    /api/decks/search (paginé ; FTS5 trigram pour q >= 3 cars ; filtre card= exact
    casse ignorée via ix_cards_card ; cache des COUNT par version de la base ;
    pagination keyset en tri date via afterDate/afterId),
-   /api/decks/deck?did=, /api/decks/meta, /api/decks/cardnames?q= (autocomplétion recherche carte),
+   /api/decks/deck?did=, /api/decks/meta, /api/decks/names?kind=card|player&q= (autocomplétion),
    /api/decks/stats, /api/decks/playable (worker + cache), /api/decks/arch, /api/decks/topcards. */
 import { sendJson} from '../utils/http.js';
 import { SNAPSHOT_DB, snapshotAvailable, getSnapshotDb } from '../utils/snapshotDb.js';
@@ -43,27 +43,36 @@ export function apiDecksMeta(req, res) {
   });
 }
 
-/* GET /api/decks/cardnames?q= — autocomplétion de la recherche par carte :
-   noms de cartes présents dans deck_cards (table cards + FTS5 trigram cards_fts,
-   LIKE accéléré par le tokenizeur trigram pour q >= 3 cars, LIKE sur cards sinon).
-   Repli sur scan LIKE de deck_cards si la base n'a pas encore la migration
-   user_version=2 (cards_fts absente). */
-export function apiDecksCardNames(req, res) {
+/* GET /api/decks/names?kind=card|player&q= — autocomplétion des recherches de l'onglet decks :
+   kind=card   -> noms de cartes présents dans deck_cards (cards_fts trigram / cards,
+                  repli scan LIKE deck_cards si migration user_version=2 absente) ;
+   kind=player -> joueurs de decks_fts (trigram) / decks.
+   q >= 3 cars -> FTS5 trigram (LIKE accéléré par le tokenizeur), sinon LIKE classique. */
+export function apiDecksNames(req, res) {
   if (!snapshotAvailable())
     return sendJson(res, 503, { ok: false, error: 'mtgtop8.sqlite absente : lancez le scraping (Parametres).' });
   const q = String((req.query || {}).q || '').trim();
-  if (!q) return sendJson(res, 200, { ok: true, names: [] });
+  const kind = String((req.query || {}).kind || '');
+  if (kind !== 'card' && kind !== 'player') return sendJson(res, 400, { ok: false, error: 'param kind requis : card|player' });
+  if (!q) return sendJson(res, 200, { ok: true, kind, names: [] });
   const c = getSnapshotDb();
   const like = '%' + escLike(q) + '%';
-  const hasFts = !!c.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cards_fts'").get();
   let names;
-  if (hasFts && q.length >= 3)
-    names = c.prepare("SELECT c.card FROM cards_fts f JOIN cards c ON c.rowid = f.rowid WHERE f.card LIKE ? ESCAPE '\\' ORDER BY c.card LIMIT 12").all(like).map(r => r.card);
-  else if (hasFts)
-    names = c.prepare("SELECT card FROM cards WHERE lower(card) LIKE ? ESCAPE '\\' ORDER BY card LIMIT 12").all(like).map(r => r.card);
-  else
-    names = c.prepare("SELECT DISTINCT card FROM deck_cards WHERE lower(card) LIKE ? ESCAPE '\\' ORDER BY card LIMIT 12").all(like).map(r => r.card);
-  sendJson(res, 200, { ok: true, names });
+  if (kind === 'player') {
+    if (q.length >= 3)
+      names = c.prepare("SELECT player FROM decks_fts WHERE player LIKE ? ESCAPE '\\' AND player != '' GROUP BY player ORDER BY player LIMIT 12").all(like).map(r => r.player);
+    else
+      names = c.prepare("SELECT DISTINCT player FROM decks WHERE player IS NOT NULL AND player != '' AND lower(player) LIKE ? ESCAPE '\\' ORDER BY player LIMIT 12").all(like).map(r => r.player);
+  } else {
+    const hasFts = !!c.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cards_fts'").get();
+    if (hasFts && q.length >= 3)
+      names = c.prepare("SELECT c.card FROM cards_fts f JOIN cards c ON c.rowid = f.rowid WHERE f.card LIKE ? ESCAPE '\\' ORDER BY c.card LIMIT 12").all(like).map(r => r.card);
+    else if (hasFts)
+      names = c.prepare("SELECT card FROM cards WHERE lower(card) LIKE ? ESCAPE '\\' ORDER BY card LIMIT 12").all(like).map(r => r.card);
+    else
+      names = c.prepare("SELECT DISTINCT card FROM deck_cards WHERE lower(card) LIKE ? ESCAPE '\\' ORDER BY card LIMIT 12").all(like).map(r => r.card);
+  }
+  sendJson(res, 200, { ok: true, kind, names });
 }
 
 /* ============================================================

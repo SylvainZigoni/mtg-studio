@@ -110,7 +110,7 @@ async function vDecks(app){
       <select id="t8players">${T8_BUCKETS.map(([v,l]) => `<option value="${v}" ${t8.players===v?'selected':''}>${l}</option>`).join('')}</select>
       ${[['ev','Rechercher un tournoi'],['pl','Rechercher un joueur'],['cd','Rechercher une carte']].map(([m,ph]) => {
         const active = t8.mode===m;
-        return `<span class="gosearch-wrap"><input type="radio" name="t8mode" value="${m}" class="t8radio" ${active?'checked':''} title="Recherche : ${ph.replace('Rechercher un ','')}"><span class="gosearch"><input type="text" id="t8q-${m}" placeholder="${ph}" value="${esc(t8.q)}"${active?'':' disabled'}><button type="button" class="btn" id="t8go-${m}"${active?'':' disabled'} title="Lancer la recherche">Go</button>${m==='cd' ? '<div class="suggestions" id="t8sugg-cd" style="display:none"></div>' : ''}</span></span>`;
+        return `<span class="gosearch-wrap"><input type="radio" name="t8mode" value="${m}" class="t8radio" ${active?'checked':''} title="Recherche : ${ph.replace('Rechercher un ','')}"><span class="gosearch"><input type="text" id="t8q-${m}" placeholder="${ph}" value="${esc(t8.q)}"${active?'':' disabled'}><button type="button" class="btn" id="t8go-${m}"${active?'':' disabled'} title="Lancer la recherche">Go</button>${(m==='cd'||m==='pl') ? `<div class="suggestions" id="t8sugg-${m}" style="display:none"></div>` : ''}</span></span>`;
       }).join('')}
     </div>
     <div class="row" style="margin-top:12px">
@@ -157,32 +157,36 @@ async function vDecks(app){
     go.onclick = doQ;
     inp.onkeydown = e => { if(e.key==='Enter') doQ(); };
   });
-  // autocomplétion de la recherche par carte : suggestions depuis mtgtop8.sqlite (/api/decks/cardnames)
-  const cinp = app.querySelector('#t8q-cd'), csugg = app.querySelector('#t8sugg-cd');
-  if(cinp && csugg){
-    let ct = null, citems = [];
-    cinp.oninput = () => {
-      clearTimeout(ct);
-      const q = cinp.value.trim();
-      if(q.length < 2){ csugg.style.display = 'none'; return; }
-      ct = setTimeout(async () => {
+  // autocomplétion des recherches joueur/carte : suggestions depuis mtgtop8.sqlite (/api/decks/names?kind=…)
+  const wireT8Sugg = (m, kind) => {
+    const inp = app.querySelector('#t8q-'+m), sugg = app.querySelector('#t8sugg-'+m);
+    if(!inp || !sugg) return;
+    const icn = kind === 'card' ? '🃏' : '👤';
+    let st = null, items = [];
+    inp.oninput = () => {
+      clearTimeout(st);
+      const q = inp.value.trim();
+      if(q.length < 2){ sugg.style.display = 'none'; return; }
+      st = setTimeout(async () => {
         try{
-          const j = await (await fetch('/api/decks/cardnames?q=' + encodeURIComponent(q))).json();
-          citems = (j && j.ok && j.names) ? j.names : [];
-        }catch(e){ citems = []; }
-        if(!citems.length){ csugg.style.display = 'none'; return; }
-        csugg.innerHTML = citems.slice(0,8).map((n,i) => `<div data-i="${i}">🃏 ${esc(n)}</div>`).join('');
-        csugg.style.display = 'block';
-        csugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
+          const j = await (await fetch('/api/decks/names?kind=' + kind + '&q=' + encodeURIComponent(q))).json();
+          items = (j && j.ok && j.names) ? j.names : [];
+        }catch(e){ items = []; }
+        if(!items.length){ sugg.style.display = 'none'; return; }
+        sugg.innerHTML = items.slice(0,8).map((n,i) => `<div data-i="${i}">${icn} ${esc(n)}</div>`).join('');
+        sugg.style.display = 'block';
+        sugg.querySelectorAll('div').forEach(el => el.onmousedown = e => {
           e.preventDefault();
-          cinp.value = citems[+el.dataset.i];
-          csugg.style.display = 'none';
-          t8.q = cinp.value.trim(); t8.page = 1; t8.cursors = []; renderT8Results(app);
+          inp.value = items[+el.dataset.i];
+          sugg.style.display = 'none';
+          t8.q = inp.value.trim(); t8.page = 1; t8.cursors = []; renderT8Results(app);
         });
       }, 280);
     };
-    cinp.addEventListener('blur', () => setTimeout(() => csugg.style.display = 'none', 150));
-  }
+    inp.addEventListener('blur', () => setTimeout(() => sugg.style.display = 'none', 150));
+  };
+  wireT8Sugg('cd', 'card');
+  wireT8Sugg('pl', 'player');
   const evmin = app.querySelector('#evmin'), evmax = app.querySelector('#evmax');
   const labs = () => {
     app.querySelector('#evlabmin').textContent = frDate(isoOf(+evmin.value));
