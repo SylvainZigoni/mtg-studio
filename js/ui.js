@@ -104,5 +104,4 @@ if(!window.__zoomInit){
   });
 }
 
-window.__booted = true;
 export { openModal, closeModal, priceRangeHTML, wirePriceRange, fetchPriceRange, setPriceBounds };

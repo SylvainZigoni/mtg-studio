@@ -118,7 +118,7 @@ async function showCardInfo(name, _box, ctx){
     <div class="cp-top">
       <div class="cp-left">
         <div class="cp-imgwrap">
-          <img id="cp-img" src="${cur.image||''}" alt="${esc(cur.name)}">
+          <img id="cp-img" src="${esc(cur.image||'')}" alt="${esc(cur.name)}">
           <span class="qtyb cp-qset" title="${qSet} de cette édition dans la collection">×${qSet}</span>
           <span class="qtyb cp-qall" title="${qAll} toutes éditions confondues dans la collection">×${qAll}</span>
         </div>
@@ -174,7 +174,7 @@ async function showCardInfo(name, _box, ctx){
       <div>
         <h4 class="sub">Texte Oracle</h4>
         <p class="hint" style="white-space:pre-wrap">${esc(cur.oracle||'')}</p>
-        ${cur.scryfall_uri?`<p style="margin-top:6px"><a href="${cur.scryfall_uri}" target="_blank" style="color:var(--accent)">Lien Scryfall ↗</a></p>`:''}
+        ${cur.scryfall_uri?`<p style="margin-top:6px"><a href="${esc(cur.scryfall_uri)}" target="_blank" style="color:var(--accent)">Lien Scryfall ↗</a></p>`:''}
       </div>
     </div>
     <h4 class="sub">Cartes ressemblantes</h4>
@@ -252,7 +252,7 @@ async function showCardInfo(name, _box, ctx){
         const d = document.createElement('div');
         d.className = 'cardtile'; d.style.width='110px'; d.style.cursor='pointer';
         d.dataset.sn = x.name; d.dataset.set = x.set || '';
-        d.innerHTML = `<img src="${img}" loading="lazy" style="width:100%;aspect-ratio:488/680;object-fit:cover"><div class="info" style="font-size:11px">${esc(x.name)}</div>`;
+        d.innerHTML = `<img src="${esc(img)}" loading="lazy" style="width:100%;aspect-ratio:488/680;object-fit:cover"><div class="info" style="font-size:11px">${esc(x.name)}</div>`;
         d.onclick = () => showCardInfo(d.dataset.sn, undefined, d.dataset.set ? {set: d.dataset.set} : null);
         grid.appendChild(d);
       });

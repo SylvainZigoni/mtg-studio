@@ -126,6 +126,9 @@ function setupCv(cv, h){
 }
 function drawHist(cv, hist){
   const { ctx, w, h } = setupCv(cv, 110);
+  const cs = getComputedStyle(document.documentElement);   // canvas ne résout pas var(--…)
+  const cOk = cs.getPropertyValue('--ok').trim() || '#4caf50';
+  const cBad = cs.getPropertyValue('--bad').trim() || '#ff5b6a';
   ctx.clearRect(0, 0, w, h);
   if(!hist.length) return;
   const maxN = Math.max(...hist.map(b => b.n), 1);
@@ -133,7 +136,7 @@ function drawHist(cv, hist){
   const zeroX = hist[0].lo < 0 && hist[hist.length-1].hi > 0 ? w * (-hist[0].lo) / (hist[hist.length-1].hi - hist[0].lo) : null;
   hist.forEach((b, i) => {
     const bh = (b.n / maxN) * (h - 24);
-    ctx.fillStyle = (b.lo + b.hi) / 2 >= 0 ? 'var(--ok)' : 'var(--bad)';
+    ctx.fillStyle = (b.lo + b.hi) / 2 >= 0 ? cOk : cBad;
     ctx.globalAlpha = 0.85;
     ctx.fillRect(i * bw + 1, h - 14 - bh, Math.max(1, bw - 2), bh);
   });
@@ -162,7 +165,7 @@ function drawIndex(cv, index){
     ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.moveTo(0, Y(100)); ctx.lineTo(w, Y(100)); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.strokeStyle = 'var(--accent)'; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#888'; ctx.lineWidth = 2; ctx.beginPath();
     index.forEach((p, i) => { const x = X(i), y = Y(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
     ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '10px sans-serif';
@@ -337,7 +340,7 @@ function tableHTML(j){
   </tr></thead><tbody id="mk-body">
   ${j.rows.map(r => { const setLabel = esc(r.set_name || setNameMap[(r.set||'').toLowerCase()] || (r.set||'').toUpperCase());
     return `<tr data-sf="${r.sfid||''}" data-nm="${esc(r.name)}">
-    <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${r.img_lg||r.img||''}" src="${r.img||''}" alt=""></td>
+    <td><img class="collthumb mkimg cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}" data-sf="${r.sfid||''}" data-zoom="${esc(r.img_lg||r.img||'')}" src="${esc(r.img||'')}" alt=""></td>
     <td><div class="cellname">${rarityDotHTML(r.rarity)}<span class="link cinfo" data-name="${esc(r.name)}" data-set="${esc(r.set||'')}" data-cn="${esc(r.cn??'')}">${esc(r.name)}</span></div>
         <div class="pillrow">${r.foil?'<span class="pill infopill icpill" title="Foil"><i class="ic ic-foil"></i></span>':''}</div></td>
     <td><div>${setLabel}</div>${r.cn?`<div class="hint">n°${esc(String(r.cn))}</div>`:''}</td>
@@ -463,7 +466,7 @@ function setsTableHTML(rows){
     <th style="width:6%"></th>${th('name','Extension','38%')}${th('date','Date','8%')}${th('now','Coût du set (avant → après)','20%')}${th('flat','Évol. €','10%')}${th('pct','Évol. %','6%')}${th('impact','Impact coll.','12%')}
   </tr></thead><tbody>
   ${rows.map(r => `<tr data-s="${esc(r.code)}" style="cursor:pointer" title="Basculer sur la vue Cartes avec cette extension en filtre">
-    <td>${r.icon?`<img class="seticon" src="${r.icon}" style="width:24px;height:24px" alt="">`:'◈'}</td>
+    <td>${r.icon?`<img class="seticon" src="${esc(r.icon)}" style="width:24px;height:24px" alt="">`:'◈'}</td>
     <td><b>${esc(r.name)}</b> <span class="pill">${esc(String(r.code||'').toUpperCase())}</span></td>
     <td class="hint">${frDate(r.released_at)}</td>
     <td class="p">${r.was!=null?eur(r.was):'—'} → ${r.now!=null?eur(r.now):'—'}</td>
